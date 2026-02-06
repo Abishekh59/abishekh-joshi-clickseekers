@@ -1,0 +1,11 @@
+node_modules
+dist
+
+# Keep environment variables out of version control
+.env
+
+# Ignore compiled JS files in src - only keep TS source files
+src/**/*.js
+!src/**/*.ts
+
+/generated/prisma

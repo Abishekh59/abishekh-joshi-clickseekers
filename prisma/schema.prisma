@@ -1,0 +1,341 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+enum UserRole {
+  ADMIN
+  PHOTOGRAPHER
+  CLIENT
+}
+
+enum DocumentType {
+  CITIZENSHIP
+  PASSPORT
+  DRIVING_LICENSE
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  user_id        String    @id @default(uuid()) @db.Uuid
+  full_name      String
+  email          String    @unique
+  password_hash  String
+  phone          String?
+  profile_image  String?
+  bio            String?
+  specialization String?
+  location       String?
+  kyc_document_url String?
+  kyc_verified   Boolean   @default(false)
+  email_verified Boolean   @default(false)
+  otp_code       String?
+  otp_expires_at DateTime?
+  created_at     DateTime  @default(now())
+
+  role           UserRole  @default(CLIENT)
+
+  // KYC relations
+  kyc_verification KycVerification? @relation("KycOwner")
+  verified_kyc     KycVerification[] @relation("KycVerifiedBy")
+
+  // Relations
+  portfolios      Portfolio[]
+  bookings_as_client       Booking[] @relation("ClientBookings")
+  bookings_as_photographer Booking[] @relation("PhotographerBookings")
+  sent_messages            Chat[]    @relation("SentMessages")
+  received_messages        Chat[]    @relation("ReceivedMessages")
+  rewards                  Reward?
+  reviews                  Review[]  @relation("UserReviews")
+  reviews_received         Review[]  @relation("PhotographerReviews")
+  reports_made             Report[]  @relation("ReportsMade")
+  reports_received         Report[]  @relation("ReportsReceived")
+  packages                 Package[]   @relation("UserPackages")
+  notifications            Notification[]
+  comments                 Comment[]
+}
+
+model Notification {
+  notification_id Int      @id @default(autoincrement())
+  user_id         String   @db.Uuid
+  title           String
+  message         String
+  type            String   // e.g., 'BOOKING', 'SYSTEM', 'CHAT'
+  is_read         Boolean  @default(false)
+  created_at      DateTime @default(now())
+
+  user            User     @relation(fields: [user_id], references: [user_id])
+}
+
+model KycVerification {
+  kyc_id             Int          @id @default(autoincrement())
+  user_id            String       @unique @db.Uuid
+  full_name          String
+  date_of_birth      DateTime?
+  gender             String?
+  contact_number     String
+  email              String
+  address_city       String
+  address_district   String
+  address_province   String
+  user_role          UserRole
+  username           String?
+  registered_email   String?
+  registered_phone   String?
+  document_type      DocumentType
+  document_number    String
+  issued_by          String?
+  issue_date         DateTime?
+  expiry_date        DateTime?
+  document_front_url String
+  document_back_url  String?
+  consent_confirmed  Boolean
+  consent_verify     Boolean
+  consent_false_info Boolean
+  status             KycStatus    @default(PENDING)
+  verified_by        String?      @db.Uuid
+  remarks            String?
+  verified_at        DateTime?
+  created_at         DateTime     @default(now())
+  updated_at         DateTime     @updatedAt
+
+  user       User @relation("KycOwner", fields: [user_id], references: [user_id])
+  verifiedBy User? @relation("KycVerifiedBy", fields: [verified_by], references: [user_id])
+}
+
+model Portfolio {
+  portfolio_id Int      @id @default(autoincrement())
+  user_id      String   @db.Uuid
+  title        String
+  description  String?
+  created_at   DateTime @default(now())
+
+  category_id Int
+  category    Category @relation(fields: [category_id], references: [category_id])
+
+  user   User            @relation(fields: [user_id], references: [user_id])
+  images PortfolioImage[]
+}
+
+model PortfolioImage {
+  image_id       Int       @id @default(autoincrement())
+  portfolio_id   Int
+  title          String
+  description    String?
+  image_url      String?
+  image_data     Bytes?
+  mime_type      String?
+  original_name  String?
+  views_count    Int       @default(0)
+  likes_count    Int       @default(0)
+  comments_count Int       @default(0)
+  created_at     DateTime  @default(now())
+
+  portfolio Portfolio @relation(fields: [portfolio_id], references: [portfolio_id])
+  comments  Comment[]
+}
+
+model Category {
+  category_id   Int    @id @default(autoincrement())
+  category_name String @unique
+
+  portfolios Portfolio[]
+}
+
+model Comment {
+  comment_id   Int      @id @default(autoincrement())
+  image_id     Int
+  user_id      String   @db.Uuid
+  comment_text String
+  parent_id    Int?     // Self-referencing field for replies
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  image   PortfolioImage @relation(fields: [image_id], references: [image_id], onDelete: Cascade)
+  user    User           @relation(fields: [user_id], references: [user_id])
+  parent  Comment?       @relation("CommentReplies", fields: [parent_id], references: [comment_id], onDelete: Cascade)
+  replies Comment[]      @relation("CommentReplies")
+  
+  @@index([image_id])
+  @@index([user_id])
+  @@index([parent_id])
+}
+
+model Booking {
+  booking_id      Int      @id @default(autoincrement())
+  event_date      DateTime
+  end_date        DateTime?
+  event_type      String?
+  created_at      DateTime @default(now())
+  amount          Decimal
+  location        String
+  notes           String?
+
+  client_id       String   @db.Uuid
+  photographer_id String   @db.Uuid
+  status_id       Int
+
+  client       User          @relation("ClientBookings", fields: [client_id], references: [user_id])
+  photographer User          @relation("PhotographerBookings", fields: [photographer_id], references: [user_id])
+  status       BookingStatus @relation(fields: [status_id], references: [status_id])
+
+  package_id      Int
+  package         Package     @relation(fields: [package_id], references: [package_id])
+  payment Payment?
+  review  Review?
+}
+
+model Package {
+  package_id      Int      @id @default(autoincrement())
+  photographer_id String   @db.Uuid
+  name            String
+  description     String?
+  price           Decimal
+  features        String?
+  duration        String?
+  most_popular    Boolean  @default(false)
+  photographer    User     @relation("UserPackages", fields: [photographer_id], references: [user_id])
+  bookings        Booking[]
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+}
+
+model BookingStatus {
+  status_id   Int    @id @default(autoincrement())
+  status_name String @unique
+
+  bookings Booking[]
+}
+
+model Payment {
+  payment_id Int     @id @default(autoincrement())
+  booking_id Int     @unique
+  amount     Decimal
+  paid_at    DateTime?
+
+  method_id Int
+  status_id Int
+
+  booking Booking       @relation(fields: [booking_id], references: [booking_id])
+  method  PaymentMethod @relation(fields: [method_id], references: [method_id])
+  status  PaymentStatus @relation(fields: [status_id], references: [status_id])
+}
+
+model PaymentMethod {
+  method_id   Int    @id @default(autoincrement())
+  method_name String @unique
+
+  payments Payment[]
+}
+
+model PaymentStatus {
+  status_id   Int    @id @default(autoincrement())
+  status_name String @unique
+
+  payments Payment[]
+}
+
+model Chat {
+  chat_id     Int      @id @default(autoincrement())
+  sender_id   String   @db.Uuid
+  receiver_id String   @db.Uuid
+  message     String
+  sent_at     DateTime @default(now())
+  read        Boolean  @default(false)
+
+  sender   User @relation("SentMessages", fields: [sender_id], references: [user_id])
+  receiver User @relation("ReceivedMessages", fields: [receiver_id], references: [user_id])
+}
+
+
+model Reward {
+  reward_id    Int      @id @default(autoincrement())
+  user_id      String   @unique @db.Uuid
+  total_points Int      @default(0)
+  last_updated DateTime @default(now())
+
+  badge_id Int
+  badge    Badge @relation(fields: [badge_id], references: [badge_id])
+
+  user User @relation(fields: [user_id], references: [user_id])
+}
+
+model Badge {
+  badge_id        Int    @id @default(autoincrement())
+  badge_name      String @unique
+  points_required Int
+
+  rewards Reward[]
+}
+
+model Review {
+  review_id       Int       @id @default(autoincrement())
+  booking_id      Int       @unique
+  reviewer_id     String    @db.Uuid
+  photographer_id String    @db.Uuid
+  rating          Int
+  comment         String?
+  reply_text      String?
+  replied_at      DateTime?
+  created_at      DateTime  @default(now())
+
+  booking      Booking @relation(fields: [booking_id], references: [booking_id])
+  reviewer     User    @relation("UserReviews", fields: [reviewer_id], references: [user_id])
+  photographer User    @relation("PhotographerReviews", fields: [photographer_id], references: [user_id])
+}
+
+model Report {
+  report_id    Int      @id @default(autoincrement())
+  reported_by  String   @db.Uuid
+  target_user  String   @db.Uuid
+  reason       String
+  reported_at  DateTime @default(now())
+  status_id    Int
+
+  reporter     User         @relation("ReportsMade", fields: [reported_by], references: [user_id])
+  target       User         @relation("ReportsReceived", fields: [target_user], references: [user_id])
+  status       ReportStatus @relation(fields: [status_id], references: [status_id])
+}
+
+model ReportStatus {
+  status_id   Int    @id @default(autoincrement())
+  status_name String @unique
+
+  reports Report[]
+}
+
+model PendingRegistration {
+  id            Int       @id @default(autoincrement())
+  full_name     String
+  email         String    @unique
+  password_hash String
+  phone         String?
+  role          UserRole  @default(CLIENT)
+  otp_code      String
+  otp_expires_at DateTime
+  created_at    DateTime  @default(now())
+}
+
+model PasswordReset {
+  id             Int       @id @default(autoincrement())
+  email          String    @unique
+  otp_code       String
+  otp_expires_at DateTime
+  created_at     DateTime  @default(now())
+}

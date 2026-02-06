@@ -8,15 +8,36 @@
     "build": "npx tsc",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/app.ts",
     "watch": "tsc -w",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "create-admin": "ts-node src/scripts/createAdmin.ts"
   },
   "author": "Abishekh Joshi",
   "license": "ISC",
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.5",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.10.1",
+    "@types/nodemailer": "^7.0.4",
+    "@types/pg": "^8.15.6",
     "express": "^5.1.0",
     "nodemon": "^3.1.11",
+    "prisma": "^7.1.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.1.0",
+    "@prisma/client": "^7.1.0",
+    "@types/cors": "^2.8.19",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.0.2",
+    "nodemailer": "^7.0.11",
+    "pg": "^8.16.3",
+    "socket.io": "^4.8.3"
   }
 }
