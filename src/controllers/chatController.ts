@@ -179,7 +179,7 @@ export const getConversations = async (req: Request, res: Response): Promise<voi
         const conversationsMap = new Map();
         const normalizedCurrentId = String(currentUserId).toLowerCase();
 
-        messages.forEach(msg => {
+        messages.forEach((msg: any) => {
             const senderId = String(msg.sender_id).toLowerCase();
             const partner = senderId === normalizedCurrentId ? msg.receiver : msg.sender;
 

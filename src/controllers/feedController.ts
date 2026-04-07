@@ -32,7 +32,7 @@ export const getDashboardFeed = catchAsync(async (req: Request, res: Response) =
     });
 
     // For each image, calculate the photographer's rank and badge
-    const imagesWithStats = await Promise.all(images.map(async (image) => {
+    const imagesWithStats = await Promise.all(images.map(async (image: any) => {
         const photographer = image.portfolio?.user;
         if (!photographer) return image;
 
@@ -271,7 +271,7 @@ export const getUserLikes = catchAsync(async (req: Request, res: Response) => {
         }
     });
 
-    const imageIds = likes.map(like => like.image_id);
+    const imageIds = likes.map((like: any) => like.image_id);
 
     return res.json({
         success: true,

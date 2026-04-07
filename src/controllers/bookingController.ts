@@ -200,7 +200,7 @@ export const getMyBookings = catchAsync(async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    data: bookings.map(b => ({
+    data: bookings.map((b: any) => ({
       ...b,
       payment_status: b.payment?.status?.status_name || 'PENDING'
     }))

@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node dist/app.js",
-    "build": "npx tsc",
+    "build": "npx prisma generate && npx tsc",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/app.ts",
     "watch": "tsc -w",
     "prepare": "npm run build",

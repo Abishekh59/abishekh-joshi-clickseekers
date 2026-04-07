@@ -64,7 +64,7 @@ export const getAvailability = async (req: Request, res: Response) => {
 
         // Convert bookings into blocked dates (handling ranges)
         const bookingBlocks: any[] = [];
-        bookings.forEach(booking => {
+        bookings.forEach((booking: any) => {
             const dates = getDatesInRange(booking.event_date, booking.end_date || booking.event_date);
             
             dates.forEach(dateStr => {
@@ -80,9 +80,9 @@ export const getAvailability = async (req: Request, res: Response) => {
 
         // Combine logic: Manual blocks take precedence over booking-derived blocks for the same date
         const combined = [...formattedManual];
-        const manualDateSet = new Set(formattedManual.map(m => m.date));
+        const manualDateSet = new Set(formattedManual.map((m: any) => m.date));
 
-        bookingBlocks.forEach(b => {
+        bookingBlocks.forEach((b: any) => {
             if (!manualDateSet.has(b.date)) {
                 combined.push(b);
             }

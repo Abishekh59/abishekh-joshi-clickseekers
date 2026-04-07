@@ -48,7 +48,7 @@ async function main() {
         });
 
         console.log('\n--- Final Leaderboard (actual points from DB) ---');
-        leaderboard.forEach((r, i) => {
+        leaderboard.forEach((r: any, i: number) => {
             console.log(`${i + 1}. ${r.user.full_name}: ${r.total_points} pts`);
         });
 

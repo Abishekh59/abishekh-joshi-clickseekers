@@ -20,7 +20,7 @@ async function main() {
         });
 
         console.log('--- Current Leaderboard ---');
-        leaderboard.forEach((r, i) => {
+        leaderboard.forEach((r: any, i: number) => {
             console.log(`${i + 1}. ${r.user.full_name}: ${r.total_points} pts`);
         });
 
