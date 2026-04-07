@@ -3,4 +3,5 @@ services:
     name: clickseekers-backend
     runtime: node
     buildCommand: npm install && npm run build
-    startCommand: node dist/app.js
+    startCommand: node start-app.js
+    region: oregon
