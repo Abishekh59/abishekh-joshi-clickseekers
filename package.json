@@ -4,7 +4,7 @@
   "description": "This is the Backend of ClickSeekers",
   "main": "index.js",
   "scripts": {
-    "start": "node dist/app.js",
+    "start": "node start-app.js",
     "build": "npx prisma generate && npx tsc",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/app.ts",
     "watch": "tsc -w",
