@@ -24,7 +24,14 @@ export const addComment = catchAsync(async (req: Request, res: Response) => {
 
     // Verify image exists
     const image = await prisma.portfolioImage.findUnique({
-        where: { image_id: imageId }
+        where: { image_id: imageId },
+        include: {
+            portfolio: {
+                select: {
+                    user_id: true
+                }
+            }
+        }
     });
 
     if (!image) {
@@ -70,10 +77,73 @@ export const addComment = catchAsync(async (req: Request, res: Response) => {
         })
     ]);
 
-    // Emit real-time update
+    // 4. Award points to photographer (only if commenter is NOT the photographer)
+    if (image.portfolio.user_id !== authUser.user_id) {
+        const { awardCommentPoints } = await import('../services/pointsService');
+        await awardCommentPoints(image.portfolio.user_id, comment.comment_id);
+    }
+
+    // Create Notification and Emit Socket
     const io = (req as any).io;
+    const author = await prisma.user.findUnique({ where: { user_id: authUser.user_id }, select: { full_name: true } });
+    const authorName = author?.full_name || 'Someone';
+
+    // 1. Notify image owner
+    if (image.portfolio.user_id !== authUser.user_id) {
+        const imageOwnerNotification = await prisma.notification.create({
+            data: {
+                user_id: image.portfolio.user_id,
+                title: 'New Comment',
+                type: 'COMMENT',
+                message: `${authorName} commented on your photo: "${comment_text.substring(0, 50)}${comment_text.length > 50 ? '...' : ''}"`,
+                is_read: false
+            }
+        });
+
+        if (io) {
+            const normalizedOwnerId = String(image.portfolio.user_id).toLowerCase();
+            io.to(normalizedOwnerId).emit('new_notification', {
+                ...imageOwnerNotification,
+                userId: image.portfolio.user_id
+            });
+        }
+    }
+
+    // 2. If it's a reply, notify the parent comment owner
+    if (parent_id) {
+        const parentComment = await prisma.comment.findUnique({
+            where: { comment_id: Number(parent_id) }
+        });
+
+        if (parentComment && parentComment.user_id !== authUser.user_id && parentComment.user_id !== image.portfolio.user_id) {
+            const replyNotification = await prisma.notification.create({
+                data: {
+                    user_id: parentComment.user_id,
+                    title: 'New Reply',
+                    type: 'COMMENT',
+                    message: `${authorName} replied to your comment: "${comment_text.substring(0, 50)}${comment_text.length > 50 ? '...' : ''}"`,
+                    is_read: false
+                }
+            });
+
+            if (io) {
+                const normalizedParentId = String(parentComment.user_id).toLowerCase();
+                io.to(normalizedParentId).emit('new_notification', {
+                    ...replyNotification,
+                    userId: parentComment.user_id
+                });
+            }
+        }
+    }
+
     if (io) {
         io.emit('photographer_updated', { imageId, type: 'comment' });
+    }
+
+    // Award points (5 points for receiving a comment)
+    if (image.portfolio.user_id !== authUser.user_id) {
+        const { awardCommentPoints } = await import('../services/pointsService');
+        await awardCommentPoints(image.portfolio.user_id, comment.comment_id);
     }
 
     return res.status(201).json({
@@ -243,6 +313,22 @@ export const deleteComment = catchAsync(async (req: Request, res: Response) => {
     const io = (req as any).io;
     if (io) {
         io.emit('photographer_updated', { imageId, type: 'comment_deleted' });
+    }
+
+    // Deduct points (5 points for removing a comment)
+    // We fetch the image owner from the comment relation if needed, but we already have imageId
+    const imgId = imageId;
+    const commentOwnerId = comment.user_id;
+
+    // Find image owner
+    const imageWithOwner = await prisma.portfolioImage.findUnique({
+        where: { image_id: imgId },
+        include: { portfolio: { select: { user_id: true } } }
+    });
+
+    if (imageWithOwner && imageWithOwner.portfolio.user_id !== commentOwnerId) {
+        const { deductCommentPoints } = await import('../services/pointsService');
+        await deductCommentPoints(imageWithOwner.portfolio.user_id, commentId);
     }
 
     return res.json({

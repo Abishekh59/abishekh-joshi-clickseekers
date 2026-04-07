@@ -16,13 +16,14 @@ import {
   markNotificationAsRead,
   replyToReview,
   submitReview,
+  togglePhotographerSave,
   updatePortfolioImage
 } from '../controllers/photographerController';
 import { authenticate, requireRole } from '../middleware/auth';
 // Public route to get all photographers with their details and recent portfolio images
 
 import { addComment, deleteComment, getComments, updateComment } from '../controllers/commentController';
-import { getDashboardFeed, incrementImageLike, incrementImageView } from '../controllers/feedController';
+import { getDashboardFeed, getUserLikes, getUserSaves, incrementImageLike, incrementImageView, toggleImageSave } from '../controllers/feedController';
 import { uploadPortfolioImage } from '../middleware/upload';
 
 const router = Router();
@@ -41,12 +42,16 @@ router.get('/portfolio/image/:imageId', getPortfolioImageBinary);
 router.get('/feed', getDashboardFeed);
 router.get('/top', getTopPhotographers);
 router.patch('/portfolio/images/:imageId/view', incrementImageView);
-router.patch('/portfolio/images/:imageId/like', incrementImageLike);
+router.patch('/portfolio/images/:imageId/like', authenticate, incrementImageLike);
+router.patch('/portfolio/images/:imageId/save', authenticate, toggleImageSave);
+router.get('/my-likes', authenticate, getUserLikes);
+router.get('/my-saves', authenticate, getUserSaves);
 router.get('/reviews', authenticate, requireRole('PHOTOGRAPHER'), getMyReviews);
 router.post('/reviews/:reviewId/reply', authenticate, requireRole('PHOTOGRAPHER'), replyToReview);
 router.post('/review', authenticate, requireRole('CLIENT'), submitReview);
 router.get('/allPhotographer', listAllPhotographersWithRecentPortfolios);
 router.get('/:photographerId', getPhotographerByIdWithRecentPortfolios);
+router.patch('/:photographerId/save', authenticate, requireRole('CLIENT'), togglePhotographerSave);
 
 // Comment routes
 router.post('/portfolio/images/:imageId/comments', authenticate, addComment);

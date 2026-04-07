@@ -60,7 +60,7 @@ export const uploadProfileImage = multer({
 
 const kycStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    const dir = path.join(process.cwd(), 'assets', 'KYC documents');
+    const dir = path.join(process.cwd(), 'assets', 'kyc_documents');
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -78,5 +78,14 @@ export const uploadKycDocs = multer({
   fileFilter,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB
+  },
+});
+
+// Memory storage for database-only uploads
+export const uploadToMemory = multer({
+  storage: multer.memoryStorage(),
+  fileFilter,
+  limits: {
+    fileSize: 15 * 1024 * 1024, // 15MB for portfolio
   },
 });

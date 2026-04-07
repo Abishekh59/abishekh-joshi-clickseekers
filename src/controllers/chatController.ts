@@ -43,6 +43,18 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
             },
         });
 
+        // Create Notification
+        const sender = await prisma.user.findUnique({ where: { user_id: senderId }, select: { full_name: true } });
+        const notification = await prisma.notification.create({
+            data: {
+                user_id: receiverId,
+                title: 'New Message',
+                type: 'CHAT',
+                message: `${sender?.full_name || 'Someone'} sent you a message: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`,
+                is_read: false
+            }
+        });
+
         // Emit real-time update via Socket.io
         // Access the io instance attached to the request object in app.ts
         const io = (req as any).io;
@@ -51,6 +63,12 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
             const normalizedReceiverId = String(receiverId).toLowerCase();
             io.to(normalizedSenderId).emit("new_message", newMessage);
             io.to(normalizedReceiverId).emit("new_message", newMessage);
+
+            // Emit new_notification
+            io.to(normalizedReceiverId).emit('new_notification', {
+                ...notification,
+                userId: receiverId
+            });
         }
 
         res.status(201).json({ success: true, data: newMessage });
