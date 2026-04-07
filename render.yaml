@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: clickseekers-backend
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: node dist/app.js
