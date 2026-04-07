@@ -89,7 +89,7 @@ export const getPhotographerByIdWithRecentPortfolios = catchAsync(
       where: { user_id: photographer.user_id },
       select: { portfolio_id: true },
     });
-    const portfolioIds = portfolios.map((p) => p.portfolio_id);
+    const portfolioIds = portfolios.map((p: any) => p.portfolio_id);
 
     const recentImages =
       portfolioIds.length > 0
@@ -731,7 +731,7 @@ export const listAllPhotographersWithRecentPortfolios = catchAsync(
 
     // For each photographer, get their recent portfolio images and calculate aggregate stats
     const results = await Promise.all(
-      photographers.map(async (photographer) => {
+      photographers.map(async (photographer: any) => {
         // Get all images for this photographer across all portfolios
         const allImages = await prisma.portfolioImage.findMany({
           where: { portfolio: { user_id: photographer.user_id } },
@@ -739,18 +739,18 @@ export const listAllPhotographersWithRecentPortfolios = catchAsync(
         });
 
         const totalLikes = allImages.reduce(
-          (sum, img) => sum + img.likes_count,
+          (sum: number, img: any) => sum + img.likes_count,
           0,
         );
         const totalViews = allImages.reduce(
-          (sum, img) => sum + img.views_count,
+          (sum: number, img: any) => sum + img.views_count,
           0,
         );
 
         const avgRating =
           photographer.reviews_received.length > 0
             ? photographer.reviews_received.reduce(
-                (sum, r) => sum + r.rating,
+                (sum: number, r: any) => sum + r.rating,
                 0,
               ) / photographer.reviews_received.length
             : 0.0; // Default to 0.0 if no reviews
@@ -760,7 +760,7 @@ export const listAllPhotographersWithRecentPortfolios = catchAsync(
           where: { user_id: photographer.user_id },
           select: { portfolio_id: true },
         });
-        const portfolioIds = portfolios.map((p) => p.portfolio_id);
+        const portfolioIds = portfolios.map((p: any) => p.portfolio_id);
 
         // Get recent images
         const recentImages =
@@ -833,7 +833,7 @@ export const getTopPhotographers = catchAsync(
     );
 
     // Map to frontend expectations in TopPhotographersLeaderboard.tsx
-    const formattedData = leaderboard.map((item) => ({
+    const formattedData = leaderboard.map((item: any) => ({
       rank: item.rank,
       user_id: item.userId,
       full_name: item.fullName,
@@ -1193,7 +1193,7 @@ export const getDashboardStats = catchAsync(
     });
 
     // Use photographer_amount (net after platform fee)
-    const totalEarnings = paidBookings.reduce((sum, booking) => {
+    const totalEarnings = paidBookings.reduce((sum: number, booking: any) => {
       return (
         sum + Number(booking.payment?.photographer_amount || booking.amount)
       );
@@ -1204,7 +1204,7 @@ export const getDashboardStats = catchAsync(
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
 
-    const thisMonthEarnings = paidBookings.reduce((sum, booking) => {
+    const thisMonthEarnings = paidBookings.reduce((sum: number, booking: any) => {
       const paidAt = booking.payment?.paid_at
         ? new Date(booking.payment.paid_at)
         : null;
@@ -1225,7 +1225,7 @@ export const getDashboardStats = catchAsync(
     const totalReviews = reviews.length;
     const avgRating =
       totalReviews > 0
-        ? reviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews
+        ? reviews.reduce((sum: number, r: any) => sum + r.rating, 0) / totalReviews
         : 0.0;
 
     // 4. Upcoming Bookings Count and List
@@ -1317,7 +1317,7 @@ export const getDashboardStats = catchAsync(
       success: true,
       data: {
         stats,
-        upcomingBookings: upcomingBookings.map((b) => ({
+        upcomingBookings: upcomingBookings.map((b: any) => ({
           id: b.booking_id,
           client: b.client.full_name,
           client_image: b.client.profile_image,
@@ -1327,7 +1327,7 @@ export const getDashboardStats = catchAsync(
           status: b.status.status_name,
           payment_status: b.payment?.status?.status_name || "PENDING",
         })),
-        recentReviews: recentReviews.map((r) => ({
+        recentReviews: recentReviews.map((r: any) => ({
           id: r.review_id,
           client: r.reviewer.full_name,
           client_image: r.reviewer.profile_image,
@@ -1445,7 +1445,7 @@ export const getEarnings = catchAsync(async (req: Request, res: Response) => {
     },
   });
 
-  const formattedEarnings = bookings.map((b) => ({
+  const formattedEarnings = bookings.map((b: any) => ({
     id: b.booking_id,
     amount: Number(b.amount),
     commission_amount: b.payment?.commission_amount
@@ -1461,7 +1461,7 @@ export const getEarnings = catchAsync(async (req: Request, res: Response) => {
     payment_status: b.payment?.status?.status_name || "PENDING",
   }));
 
-  const total = formattedEarnings.reduce((sum, e) => sum + e.amount, 0);
+  const total = formattedEarnings.reduce((sum: number, e: any) => sum + e.amount, 0);
 
   return res.json({
     success: true,
@@ -1493,12 +1493,12 @@ export const getAnalytics = catchAsync(async (req: Request, res: Response) => {
 
   // Map status names
   const statuses = await prisma.bookingStatus.findMany();
-  const statusLabels = statuses.reduce((map: any, s) => {
+  const statusLabels = statuses.reduce((map: any, s: any) => {
     map[s.status_id] = s.status_name;
     return map;
   }, {});
 
-  const bookingDistribution = bookingStats.map((s) => ({
+  const bookingDistribution = bookingStats.map((s: any) => ({
     status: statusLabels[s.status_id],
     count: s._count.booking_id,
   }));
@@ -1526,7 +1526,7 @@ export const getAnalytics = catchAsync(async (req: Request, res: Response) => {
     },
   });
 
-  const monthlyEarnings = paidBookings.reduce((acc: any, b) => {
+  const monthlyEarnings = paidBookings.reduce((acc: any, b: any) => {
     const paidAt = b.payment?.paid_at
       ? new Date(b.payment.paid_at)
       : new Date();
@@ -1557,13 +1557,13 @@ export const getAnalytics = catchAsync(async (req: Request, res: Response) => {
     take: 5,
   });
 
-  const packageIds = topPackages.map((p) => p.package_id);
+  const packageIds = topPackages.map((p: any) => p.package_id);
   const packageDetails = await prisma.package.findMany({
     where: { package_id: { in: packageIds } },
   });
 
-  const packageStats = topPackages.map((p) => {
-    const detail = packageDetails.find((d) => d.package_id === p.package_id);
+  const packageStats = topPackages.map((p: any) => {
+    const detail = packageDetails.find((d: any) => d.package_id === p.package_id);
     return {
       name: detail?.name || "Unknown",
       count: p._count.booking_id,
@@ -1697,12 +1697,12 @@ export const getFavoritePhotographers = catchAsync(
     });
 
     const results = await Promise.all(
-      saves.map(async (save) => {
+      saves.map(async (save: any) => {
         const photographer = save.photographer;
         const avgRating =
           photographer.reviews_received.length > 0
             ? photographer.reviews_received.reduce(
-                (sum, r) => sum + r.rating,
+                (sum: number, r: any) => sum + r.rating,
                 0,
               ) / photographer.reviews_received.length
             : 5.0; // Default to 5.0 if no reviews
@@ -1761,7 +1761,7 @@ export const getFavoritePhotographerIds = catchAsync(
       select: { photographer_id: true },
     });
 
-    const favoriteIds = saves.map((s) => s.photographer_id);
+    const favoriteIds = saves.map((s: any) => s.photographer_id);
 
     return res.json({
       success: true,

@@ -503,7 +503,7 @@ export const getLeaderboard = async (limit: number = 50, period: string = 'all-t
                 }
             });
 
-            return topUsers.map((reward, index) => ({
+            return topUsers.map((reward: any, index: number) => ({
                 rank: index + 1,
                 userId: reward.user.user_id,
                 fullName: reward.user.full_name,

@@ -421,7 +421,7 @@ export const getUserSaves = catchAsync(async (req: Request, res: Response) => {
         };
     });
 
-    const savedImageIds = saves.map(s => s.image_id);
+    const savedImageIds = saves.map((s: any) => s.image_id);
 
     return res.json({
         success: true,

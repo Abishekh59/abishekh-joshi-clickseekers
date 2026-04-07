@@ -19,7 +19,7 @@ const cleanupClientPoints = async () => {
             }
         });
 
-        const nonPhotographerIds = nonPhotographers.map(u => u.user_id);
+        const nonPhotographerIds = nonPhotographers.map((u: any) => u.user_id);
         console.log(`Found ${nonPhotographers.length} users with non-photographer roles (CLIENT or ADMIN).`);
 
         if (nonPhotographerIds.length === 0) {

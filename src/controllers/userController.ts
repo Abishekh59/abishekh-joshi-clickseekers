@@ -1243,7 +1243,7 @@ export const getMe = catchAsync(async (req: Request, res: Response) => {
     });
 
     const total_bookings = bookingsCountAgg._count.booking_id || 0;
-    const earnings = earningsAgg.reduce((sum, b) => {
+    const earnings = earningsAgg.reduce((sum: number, b: any) => {
       const netAmount = b.payment?.photographer_amount
         ? Number(b.payment.photographer_amount)
         : Number(b.amount);

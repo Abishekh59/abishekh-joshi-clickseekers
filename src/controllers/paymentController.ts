@@ -159,7 +159,7 @@ export const verifyPayment = catchAsync(async (req: Request, res: Response) => {
 
             if (bookingId > 0) {
                 let transactionSuccess = false;
-                await prisma.$transaction(async (tx) => {
+                await prisma.$transaction(async (tx: any) => {
                     // 1. Fetch booking details first
                     const booking = await tx.booking.findUnique({
                         where: { booking_id: bookingId },
