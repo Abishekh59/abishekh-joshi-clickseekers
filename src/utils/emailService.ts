@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import type { Transporter } from 'nodemailer';
 
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
@@ -16,21 +17,26 @@ if (!SMTP_USER || !SMTP_PASS) {
   );
 }
 
-// Create transporter with connection timeout settings
-const transporter = nodemailer.createTransport({
-  host: SMTP_HOST,
-  port: SMTP_PORT,
-  secure: SMTP_SECURE,
-  auth: SMTP_USER && SMTP_PASS ? {
-    user: SMTP_USER,
-    pass: SMTP_PASS,
-  } : undefined,
-  connectionTimeout: 10000, // 10 seconds
-  socketTimeout: 10000, // 10 seconds
-  tls: {
-    rejectUnauthorized: false, // For Render/production environments
+// Create transporter with SMTP settings
+const transporter: Transporter = nodemailer.createTransport(
+  {
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_SECURE,
+    auth: SMTP_USER && SMTP_PASS ? {
+      user: SMTP_USER,
+      pass: SMTP_PASS,
+    } : undefined,
+    connectionTimeout: 10000,
+    socketTimeout: 10000,
+    tls: {
+      rejectUnauthorized: false,
+    },
   },
-} as any);
+  {
+    from: SMTP_USER,
+  }
+);
 
 // Retry logic helper
 const sendMailWithRetry = async (transporter: nodemailer.Transporter, mailOptions: nodemailer.SendMailOptions, maxRetries = 3): Promise<void> => {
