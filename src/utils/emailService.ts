@@ -4,6 +4,7 @@ const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 const SMTP_HOST = process.env.SMTP_HOST || 'smtp.gmail.com';
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587');
+const SMTP_SECURE = process.env.SMTP_SECURE === 'true' || SMTP_PORT === 465;
 
 if (!SMTP_USER || !SMTP_PASS) {
   console.warn(
@@ -15,16 +16,49 @@ if (!SMTP_USER || !SMTP_PASS) {
   );
 }
 
-// Create transporter
+// Create transporter with connection timeout and pool settings
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST,
   port: SMTP_PORT,
-  secure: SMTP_PORT === 465,
+  secure: SMTP_SECURE,
   auth: SMTP_USER && SMTP_PASS ? {
     user: SMTP_USER,
     pass: SMTP_PASS,
   } : undefined,
+  connectionTimeout: 10000, // 10 seconds
+  socketTimeout: 10000, // 10 seconds
+  pool: {
+    maxConnections: 5,
+    maxMessages: 100,
+    rateDelta: 1000,
+    rateLimit: 10,
+  },
+  logger: true,
+  debug: process.env.NODE_ENV === 'development',
 });
+
+// Retry logic helper
+const sendMailWithRetry = async (transporter: nodemailer.Transporter, mailOptions: nodemailer.SendMailOptions, maxRetries = 3): Promise<void> => {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await transporter.sendMail(mailOptions);
+      return; // Success
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.warn(`⚠️  Email send attempt ${attempt}/${maxRetries} failed: ${lastError.message}`);
+      
+      if (attempt < maxRetries) {
+        // Wait before retrying (exponential backoff: 1s, 2s, 4s)
+        const delayMs = Math.pow(2, attempt - 1) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  
+  throw lastError || new Error('Failed to send email after retries');
+};
 
 // Send OTP email
 export const sendOTPEmail = async (email: string, otpCode: string, fullName: string): Promise<void> => {
@@ -77,7 +111,7 @@ export const sendOTPEmail = async (email: string, otpCode: string, fullName: str
   };
 
   try {
-    await transporter.sendMail(mailOptions);
+    await sendMailWithRetry(transporter, mailOptions);
     console.log(`✅ OTP email sent successfully to ${email}`);
   } catch (error) {
     console.error('❌ Error sending OTP email:', error);
@@ -142,7 +176,7 @@ export const sendPasswordResetOTPEmail = async (email: string, otpCode: string, 
   };
 
   try {
-    await transporter.sendMail(mailOptions);
+    await sendMailWithRetry(transporter, mailOptions);
     console.log(`✅ Password Reset OTP email sent successfully to ${email}`);
   } catch (error) {
     console.error('❌ Error sending Password Reset OTP email:', error);
