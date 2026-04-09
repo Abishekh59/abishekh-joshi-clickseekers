@@ -16,7 +16,7 @@ if (!SMTP_USER || !SMTP_PASS) {
   );
 }
 
-// Create transporter with connection timeout and pool settings
+// Create transporter with connection timeout settings
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST,
   port: SMTP_PORT,
@@ -27,15 +27,10 @@ const transporter = nodemailer.createTransport({
   } : undefined,
   connectionTimeout: 10000, // 10 seconds
   socketTimeout: 10000, // 10 seconds
-  pool: {
-    maxConnections: 5,
-    maxMessages: 100,
-    rateDelta: 1000,
-    rateLimit: 10,
+  tls: {
+    rejectUnauthorized: false, // For Render/production environments
   },
-  logger: true,
-  debug: process.env.NODE_ENV === 'development',
-});
+} as any);
 
 // Retry logic helper
 const sendMailWithRetry = async (transporter: nodemailer.Transporter, mailOptions: nodemailer.SendMailOptions, maxRetries = 3): Promise<void> => {
