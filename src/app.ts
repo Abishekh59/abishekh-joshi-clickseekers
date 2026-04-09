@@ -28,6 +28,7 @@ const defaultAllowedOrigins = [
   "http://localhost:3000",
   "http://localhost:8081",
   "http://127.0.0.1:3000",
+  "https://abishekh-joshi-clickseekers.onrender.com",
 ];
 
 const envAllowedOrigins = (process.env.ALLOWED_ORIGINS || "")
