@@ -5,6 +5,7 @@ import prisma from "../model/index";
 import * as pointsService from "../services/pointsService";
 import catchAsync from "../utils/catchAsync";
 import { sendOTPEmail, sendPasswordResetOTPEmail } from "../utils/emailService";
+import { getFullImageUrl } from "../utils/imageUtils";
 
 const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
@@ -534,7 +535,7 @@ export const login = catchAsync(async (req: Request, res: Response) => {
         email: user.email,
         role: user.role,
         phone: user.phone,
-        profile_image: user.profile_image,
+        profile_image: getFullImageUrl(user.profile_image),
         bio: user.bio,
         kyc_verified: user.role === "ADMIN" ? undefined : user.kyc_verified,
         email_verified: user.email_verified,
@@ -834,7 +835,10 @@ export const updateProfile = catchAsync(async (req: Request, res: Response) => {
   res.json({
     success: true,
     message: "Profile updated successfully",
-    data: user,
+    data: {
+      ...user,
+      profile_image: getFullImageUrl(user.profile_image),
+    },
   });
 });
 
@@ -1267,6 +1271,7 @@ export const getMe = catchAsync(async (req: Request, res: Response) => {
     data: {
       ...user,
       ...stats,
+      profile_image: getFullImageUrl(user.profile_image),
     },
   });
 });
@@ -1323,7 +1328,10 @@ export const uploadAvatar = catchAsync(async (req: Request, res: Response) => {
   res.json({
     success: true,
     message: "Profile image uploaded successfully",
-    data: user,
+    data: {
+      ...user,
+      profile_image: getFullImageUrl(user.profile_image),
+    },
   });
 });
 

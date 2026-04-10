@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../model/index';
 import catchAsync from '../utils/catchAsync';
+import { getFullImageUrl } from '../utils/imageUtils';
 
 // Book a photographer
 export const createBooking = catchAsync(async (req: Request, res: Response) => {
@@ -202,6 +203,14 @@ export const getMyBookings = catchAsync(async (req: Request, res: Response) => {
     success: true,
     data: bookings.map((b: any) => ({
       ...b,
+      client: b.client ? {
+        ...b.client,
+        profile_image: getFullImageUrl(b.client.profile_image)
+      } : null,
+      photographer: b.photographer ? {
+        ...b.photographer,
+        profile_image: getFullImageUrl(b.photographer.profile_image)
+      } : null,
       payment_status: b.payment?.status?.status_name || 'PENDING'
     }))
   });

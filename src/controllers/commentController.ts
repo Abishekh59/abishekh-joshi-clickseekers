@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import prisma from '../model/index';
 import catchAsync from '../utils/catchAsync';
+import { getFullImageUrl } from '../utils/imageUtils';
 
 /**
  * POST /api/photographer/portfolio/images/:imageId/comments
@@ -149,7 +150,13 @@ export const addComment = catchAsync(async (req: Request, res: Response) => {
     return res.status(201).json({
         success: true,
         message: parent_id ? 'Reply added successfully' : 'Comment added successfully',
-        data: comment
+        data: {
+            ...comment,
+            user: comment.user ? {
+                ...comment.user,
+                profile_image: getFullImageUrl(comment.user.profile_image)
+            } : null
+        }
     });
 });
 
@@ -196,9 +203,24 @@ export const getComments = catchAsync(async (req: Request, res: Response) => {
         }
     });
 
+    const enrichedComments = comments.map((comment: any) => ({
+        ...comment,
+        user: comment.user ? {
+            ...comment.user,
+            profile_image: getFullImageUrl(comment.user.profile_image)
+        } : null,
+        replies: (comment.replies || []).map((reply: any) => ({
+            ...reply,
+            user: reply.user ? {
+                ...reply.user,
+                profile_image: getFullImageUrl(reply.user.profile_image)
+            } : null
+        }))
+    }));
+
     return res.json({
         success: true,
-        data: comments
+        data: enrichedComments
     });
 });
 
@@ -256,7 +278,13 @@ export const updateComment = catchAsync(async (req: Request, res: Response) => {
     return res.json({
         success: true,
         message: 'Comment updated successfully',
-        data: updatedComment
+        data: {
+            ...updatedComment,
+            user: updatedComment.user ? {
+                ...updatedComment.user,
+                profile_image: getFullImageUrl(updatedComment.user.profile_image)
+            } : null
+        }
     });
 });
 
