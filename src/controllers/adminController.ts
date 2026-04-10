@@ -1,7 +1,6 @@
 import type { Request, Response } from "express";
 import prisma from "../model/index";
 import catchAsync from "../utils/catchAsync";
-import { getFullImageUrl } from "../utils/imageUtils";
 
 /**
  * Get overall dashboard statistics for admins
@@ -194,10 +193,7 @@ export const getAllUsers = catchAsync(async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    data: users.map((u: any) => ({
-      ...u,
-      profile_image: getFullImageUrl(u.profile_image),
-    })),
+    data: users,
     pagination: {
       total,
       page: Number(page),
@@ -301,15 +297,7 @@ export const getPendingKyc = catchAsync(async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    data: pending.map((p: any) => ({
-      ...p,
-      user: p.user
-        ? {
-            ...p.user,
-            profile_image: getFullImageUrl(p.user.profile_image),
-          }
-        : null,
-    })),
+    data: pending,
   });
 });
 
@@ -521,21 +509,7 @@ export const getAllBookings = catchAsync(async (req: Request, res: Response) => 
 
   res.json({
     success: true,
-    data: bookings.map((b: any) => ({
-      ...b,
-      client: b.client
-        ? {
-            ...b.client,
-            profile_image: getFullImageUrl(b.client.profile_image),
-          }
-        : null,
-      photographer: b.photographer
-        ? {
-            ...b.photographer,
-            profile_image: getFullImageUrl(b.photographer.profile_image),
-          }
-        : null,
-    })),
+    data: bookings,
     pagination: {
       total,
       page: Number(page),

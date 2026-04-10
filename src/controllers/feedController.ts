@@ -2,7 +2,6 @@ import type { Request, Response } from 'express';
 import prisma from '../model/index';
 import * as pointsService from '../services/pointsService';
 import catchAsync from '../utils/catchAsync';
-import { getFullImageUrl } from '../utils/imageUtils';
 
 /**
  * GET /api/photographer/feed
@@ -65,7 +64,6 @@ export const getDashboardFeed = catchAsync(async (req: Request, res: Response) =
                 ...image.portfolio,
                 user: {
                     ...photographer,
-                    profile_image: getFullImageUrl(photographer.profile_image),
                     rank: rank,
                     points: points,
                     badge: pointsService.getBadgeTier(points)
@@ -83,7 +81,7 @@ export const getDashboardFeed = catchAsync(async (req: Request, res: Response) =
 
     const enrichImageWithUrl = (image: any) => ({
         ...image,
-        image_url: getFullImageUrl(image.image_url) || `/api/photographer/portfolio/image/${image.image_id}`
+        image_url: `/api/photographer/portfolio/image/${image.image_id}`
     });
 
     return res.json({
@@ -398,17 +396,14 @@ export const getUserSaves = catchAsync(async (req: Request, res: Response) => {
 
     const enrichImageWithUrl = (image: any) => ({
         ...image,
-        image_url: getFullImageUrl(image.image_url) || `/api/photographer/portfolio/image/${image.image_id}`
+        image_url: `/api/photographer/portfolio/image/${image.image_id}`
     });
 
     const savedPosts = saves.map((s: any) => {
         const enrichedOuter = enrichImageWithUrl(s.image);
         return {
             ...enrichedOuter,
-            photographer: {
-                ...s.image.portfolio.user,
-                profile_image: getFullImageUrl(s.image.portfolio.user.profile_image)
-            },
+            photographer: s.image.portfolio.user,
             isLiked: s.image.likes.some((l: any) => l.user_id === userId),
             isSaved: true
         };

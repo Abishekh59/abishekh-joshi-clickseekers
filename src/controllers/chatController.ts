@@ -1,6 +1,5 @@
 import type { Request, Response } from "express";
 import prisma from "../model";
-import { getFullImageUrl } from "../utils/imageUtils";
 
 // Send a message
 export const sendMessage = async (req: Request, res: Response): Promise<void> => {
@@ -72,19 +71,7 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
             });
         }
 
-        const transformedMessage = {
-            ...newMessage,
-            sender: newMessage.sender ? {
-                ...newMessage.sender,
-                profile_image: getFullImageUrl(newMessage.sender.profile_image)
-            } : null,
-            receiver: newMessage.receiver ? {
-                ...newMessage.receiver,
-                profile_image: getFullImageUrl(newMessage.receiver.profile_image)
-            } : null
-        };
-
-        res.status(201).json({ success: true, data: transformedMessage });
+        res.status(201).json({ success: true, data: newMessage });
     } catch (error) {
         console.error("Error sending message:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
@@ -136,19 +123,7 @@ export const getChatHistory = async (req: Request, res: Response): Promise<void>
             },
         });
 
-        const transformedMessages = messages.map((msg: any) => ({
-            ...msg,
-            sender: msg.sender ? {
-                ...msg.sender,
-                profile_image: getFullImageUrl(msg.sender.profile_image)
-            } : null,
-            receiver: msg.receiver ? {
-                ...msg.receiver,
-                profile_image: getFullImageUrl(msg.receiver.profile_image)
-            } : null
-        }));
-
-        res.status(200).json({ success: true, data: transformedMessages });
+        res.status(200).json({ success: true, data: messages });
     } catch (error) {
         console.error("Error fetching chat history:", error);
         res.status(500).json({ success: false, message: "Internal server error" });
@@ -212,10 +187,7 @@ export const getConversations = async (req: Request, res: Response): Promise<voi
                 const partnerId = String(partner.user_id).toLowerCase();
                 if (!conversationsMap.has(partnerId)) {
                     conversationsMap.set(partnerId, {
-                        user: {
-                            ...partner,
-                            profile_image: getFullImageUrl(partner.profile_image)
-                        },
+                        user: partner,
                         lastMessage: msg
                     });
                 }

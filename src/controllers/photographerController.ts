@@ -3,7 +3,6 @@ import fs from "fs";
 import prisma from "../model/index";
 import * as pointsService from "../services/pointsService";
 import catchAsync from "../utils/catchAsync";
-import { getFullImageUrl } from "../utils/imageUtils";
 
 // GET /api/photographers/:photographerId
 // Get a photographer by id with their details and recent portfolio images
@@ -107,7 +106,6 @@ export const getPhotographerByIdWithRecentPortfolios = catchAsync(
       success: true,
       data: {
         ...photographer,
-        profile_image: getFullImageUrl(photographer.profile_image),
         reviews: photographer.reviews_received, // Map to 'reviews' for frontend compatibility
         total_bookings: totalBookings,
         rank: rank,
@@ -300,7 +298,7 @@ const safeUnlinkIfExists = (absolutePath: string) => {
 
 const enrichImageWithUrl = (image: any) => ({
   ...image,
-  image_url: getFullImageUrl(image.image_url) || `/api/photographer/portfolio/image/${image.image_id}`,
+  image_url: image.image_url || `/api/photographer/portfolio/image/${image.image_id}`,
 });
 
 const enrichImagesWithUrl = (images: any[]) => images.map(enrichImageWithUrl);
@@ -800,7 +798,6 @@ export const listAllPhotographersWithRecentPortfolios = catchAsync(
 
         return {
           ...photographer,
-          profile_image: getFullImageUrl(photographer.profile_image),
           reviews: photographer.reviews_received, // Map to 'reviews' for frontend compatibility
           total_likes: totalLikes,
           total_views: totalViews,
