@@ -25,7 +25,7 @@ if (!SMTP_USER || !SMTP_PASS) {
 }
 
 const transporter = nodemailer.createTransport(
-  (SMTP_HOST === 'smtp.gmail.com') ? {
+  (SMTP_HOST === 'smtp.gmail.com' ? {
     host: 'smtp.gmail.com',
     port: 465,
     secure: true,
@@ -33,6 +33,9 @@ const transporter = nodemailer.createTransport(
       user: SMTP_USER,
       pass: SMTP_PASS,
     },
+    connectionTimeout: 30000,
+    socketTimeout: 30000,
+    family: 4,
   } : {
     host: SMTP_HOST,
     port: SMTP_PORT,
@@ -41,10 +44,13 @@ const transporter = nodemailer.createTransport(
       user: SMTP_USER,
       pass: SMTP_PASS,
     },
+    connectionTimeout: 30000,
+    socketTimeout: 30000,
+    family: 4,
     tls: {
       rejectUnauthorized: false,
     },
-  }
+  }) as any
 );
 
 async function testConnection() {

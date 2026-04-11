@@ -20,7 +20,7 @@ if (!SMTP_USER || !SMTP_PASS) {
 // Create transporter with SMTP settings
 // For Gmail, using 'service: gmail' is generally more reliable as it handles specific Gmail quirks.
 const transporter: Transporter = nodemailer.createTransport(
-  (SMTP_HOST === 'smtp.gmail.com') ? {
+  (SMTP_HOST === 'smtp.gmail.com' ? {
     host: 'smtp.gmail.com',
     port: 465,
     secure: true,
@@ -28,8 +28,9 @@ const transporter: Transporter = nodemailer.createTransport(
       user: SMTP_USER,
       pass: SMTP_PASS,
     },
-    connectionTimeout: 20000,
-    socketTimeout: 20000,
+    connectionTimeout: 30000,
+    socketTimeout: 30000,
+    family: 4,
   } : {
     host: SMTP_HOST,
     port: SMTP_PORT,
@@ -38,12 +39,13 @@ const transporter: Transporter = nodemailer.createTransport(
       user: SMTP_USER,
       pass: SMTP_PASS,
     } : undefined,
-    connectionTimeout: 20000,
-    socketTimeout: 20000,
+    connectionTimeout: 30000,
+    socketTimeout: 30000,
+    family: 4,
     tls: {
       rejectUnauthorized: false,
     },
-  },
+  }) as any,
   {
     from: SMTP_USER,
   }
