@@ -1,15 +1,15 @@
-import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import nodemailer from 'nodemailer';
 
-const SMTP_USER = process.env.SMTP_USER;
-const SMTP_PASS = process.env.SMTP_PASS;
-const SMTP_HOST = process.env.SMTP_HOST || 'smtp.gmail.com';
-const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587');
+const SMTP_USER = process.env.SMTP_USER?.trim();
+const SMTP_PASS = process.env.SMTP_PASS?.trim();
+const SMTP_HOST = process.env.SMTP_HOST?.trim() || 'smtp.gmail.com';
+const SMTP_PORT = parseInt(process.env.SMTP_PORT || '465');
 const SMTP_SECURE = process.env.SMTP_SECURE === 'true' || SMTP_PORT === 465;
 
 if (!SMTP_USER || !SMTP_PASS) {
   console.warn(
-    '⚠️  SMTP credentials not configured. Email sending will fail.\n' +
+    'SMTP credentials not configured. Email sending will fail.\n' +
     'Please create a .env file with:\n' +
     '  SMTP_USER=your-email@gmail.com\n' +
     '  SMTP_PASS=your-app-password\n' +
@@ -18,8 +18,19 @@ if (!SMTP_USER || !SMTP_PASS) {
 }
 
 // Create transporter with SMTP settings
+// For Gmail, using 'service: gmail' is generally more reliable as it handles specific Gmail quirks.
 const transporter: Transporter = nodemailer.createTransport(
-  {
+  (SMTP_HOST === 'smtp.gmail.com') ? {
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: {
+      user: SMTP_USER,
+      pass: SMTP_PASS,
+    },
+    connectionTimeout: 20000,
+    socketTimeout: 20000,
+  } : {
     host: SMTP_HOST,
     port: SMTP_PORT,
     secure: SMTP_SECURE,
@@ -27,8 +38,8 @@ const transporter: Transporter = nodemailer.createTransport(
       user: SMTP_USER,
       pass: SMTP_PASS,
     } : undefined,
-    connectionTimeout: 10000,
-    socketTimeout: 10000,
+    connectionTimeout: 20000,
+    socketTimeout: 20000,
     tls: {
       rejectUnauthorized: false,
     },
@@ -38,26 +49,28 @@ const transporter: Transporter = nodemailer.createTransport(
   }
 );
 
+
 // Retry logic helper
 const sendMailWithRetry = async (transporter: nodemailer.Transporter, mailOptions: nodemailer.SendMailOptions, maxRetries = 3): Promise<void> => {
   let lastError: Error | null = null;
-  
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       await transporter.sendMail(mailOptions);
       return; // Success
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      console.warn(`⚠️  Email send attempt ${attempt}/${maxRetries} failed: ${lastError.message}`);
-      
+      const errorDetails = error instanceof Error ? `${error.message}${ (error as any).code ? ` (Code: ${(error as any).code})` : ''}` : String(error);
+      console.warn(`⚠️  Email send attempt ${attempt}/${maxRetries} failed: ${errorDetails}`);
+
       if (attempt < maxRetries) {
-        // Wait before retrying (exponential backoff: 1s, 2s, 4s)
         const delayMs = Math.pow(2, attempt - 1) * 1000;
         await new Promise(resolve => setTimeout(resolve, delayMs));
+      } else {
+        lastError = error instanceof Error ? error : new Error(String(error));
       }
     }
   }
-  
+
   throw lastError || new Error('Failed to send email after retries');
 };
 
@@ -65,7 +78,7 @@ const sendMailWithRetry = async (transporter: nodemailer.Transporter, mailOption
 export const sendOTPEmail = async (email: string, otpCode: string, fullName: string): Promise<void> => {
   if (!SMTP_USER || !SMTP_PASS) {
     const errorMsg = 'SMTP credentials not configured. Please set SMTP_USER and SMTP_PASS in your .env file.';
-    console.error(`❌ ${errorMsg}`);
+    console.error(` ${errorMsg}`);
     throw new Error(errorMsg);
   }
 
@@ -113,10 +126,12 @@ export const sendOTPEmail = async (email: string, otpCode: string, fullName: str
 
   try {
     await sendMailWithRetry(transporter, mailOptions);
-    console.log(`✅ OTP email sent successfully to ${email}`);
+    console.log(`OTP email sent successfully to ${email}`);
   } catch (error) {
-    console.error('❌ Error sending OTP email:', error);
-    throw new Error(`Failed to send OTP email: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+    const errorCode = (error as any).code || 'N/A';
+    console.error(`❌ Failed to send OTP email to ${email}:`, { message: errorMsg, code: errorCode });
+    throw new Error(`Failed to send OTP email: ${errorMsg}`);
   }
 };
 
@@ -124,7 +139,7 @@ export const sendOTPEmail = async (email: string, otpCode: string, fullName: str
 export const sendPasswordResetOTPEmail = async (email: string, otpCode: string, fullName: string): Promise<void> => {
   if (!SMTP_USER || !SMTP_PASS) {
     const errorMsg = 'SMTP credentials not configured. Please set SMTP_USER and SMTP_PASS in your .env file.';
-    console.error(`❌ ${errorMsg}`);
+    console.error(` ${errorMsg}`);
     throw new Error(errorMsg);
   }
 
@@ -178,9 +193,9 @@ export const sendPasswordResetOTPEmail = async (email: string, otpCode: string, 
 
   try {
     await sendMailWithRetry(transporter, mailOptions);
-    console.log(`✅ Password Reset OTP email sent successfully to ${email}`);
+    console.log(` Password Reset OTP email sent successfully to ${email}`);
   } catch (error) {
-    console.error('❌ Error sending Password Reset OTP email:', error);
+    console.error('Error sending Password Reset OTP email:', error);
     throw new Error(`Failed to send Password Reset OTP email: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 };

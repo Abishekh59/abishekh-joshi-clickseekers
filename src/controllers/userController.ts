@@ -157,14 +157,17 @@ export const register = catchAsync(async (req: Request, res: Response) => {
     await sendOTPEmail(email, otp_code, full_name);
     console.log(`OTP email sent successfully to ${email}`);
   } catch (error) {
-    console.error("Error sending OTP email:", error);
+    console.error(`[Register] ❌ Critical: Error sending OTP email to ${email}:`, error);
     // Delete pending registration if email fails
     await prisma.pendingRegistration.delete({
       where: { email },
-    });
+    }).catch(delError => console.error("[Register] Failed to cleanup pending registration:", delError));
+
     return res.status(500).json({
       success: false,
-      message: "Failed to send OTP email. Please try again.",
+      message: error instanceof Error && error.message.includes("SMTP settings") 
+        ? "Server configuration error. Please contact support." 
+        : "Failed to send OTP email. Please try again.",
     });
   }
 
