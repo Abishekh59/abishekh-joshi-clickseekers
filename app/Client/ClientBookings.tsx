@@ -2,7 +2,7 @@ import { ThemedText } from '@/components/themed-text';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,12 +18,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-type BookingStatus = 'upcoming' | 'completed' | 'cancelled';
-
 import ClientBottomNav from '../../components/ClientBottomNav';
+import PaymentReceipt from '../../components/PaymentReceipt';
 import { API_HOST, apiService } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { storage } from '../../utils/storage';
+import KhaltiWebView from './KhaltiWebView';
 
 const toAbsoluteImageUrl = (url: string | null | undefined) => {
   if (!url || url.trim() === '') return null;
@@ -31,6 +31,10 @@ const toAbsoluteImageUrl = (url: string | null | undefined) => {
   const path = url.startsWith('/') ? url : `/${url}`;
   return `${API_HOST}${path}`;
 };
+
+// Define types for Tabs and Booking Status
+type TabType = 'upcoming' | 'completed' | 'cancelled';
+type BookingStatusType = 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'rejected';
 
 interface Booking {
   id: string;
@@ -41,11 +45,14 @@ interface Booking {
   serviceTitle: string;
   bookingDate: string;
   bookingTime: string;
-  status: BookingStatus;
+  status: BookingStatusType;
   location: string;
   amount: number;
   specialRequirements?: string;
   createdAt: string;
+  paymentStatus?: 'COMPLETED' | 'PENDING' | 'FAILED';
+  paymentMethod?: string;
+  packageName?: string;
 }
 
 type Props = {
@@ -55,9 +62,20 @@ type Props = {
 export const ClientBookings: React.FC<Props> = ({ onNavigate }) => {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [activeTab, setActiveTab] = useState<BookingStatus>('upcoming');
-  const [bookings, setBookings] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<TabType>('upcoming');
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Payment State
+  const [showKhaltiWebView, setShowKhaltiWebView] = useState(false);
+  const [khaltiUrl, setKhaltiUrl] = useState('');
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [currentPaymentBooking, setCurrentPaymentBooking] = useState<Booking | null>(null);
+
+  // Receipt State
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [receiptData, setReceiptData] = useState<any>(null);
+  const currentBookingIdRef = useRef<string | null>(null);
 
   const gray900 = useThemeColor({}, 'gray900');
   const gray700 = useThemeColor({}, 'gray700');
@@ -77,28 +95,36 @@ export const ClientBookings: React.FC<Props> = ({ onNavigate }) => {
 
         const res = await apiService.getMyBookings(token);
         if (res.success && res.data) {
-          const mappedBookings = res.data.map((b: any) => {
-            let mappedStatus = 'pending';
+          const mappedBookings: Booking[] = res.data.map((b: any) => {
+            let mappedStatus: BookingStatusType = 'pending';
             const s = b.status?.status_name?.toUpperCase();
             if (s === 'ACCEPTED') mappedStatus = 'confirmed';
             else if (s === 'COMPLETED') mappedStatus = 'completed';
-            else if (s === 'CANCELLED' || s === 'REJECTED') mappedStatus = 'cancelled';
+            else if (s === 'CANCELLED') mappedStatus = 'cancelled';
+            else if (s === 'REJECTED') mappedStatus = 'rejected';
             else mappedStatus = 'pending';
+
+            // Check payment status from direct field or nested object
+            const pStatus = (b.payment_status || b.payment?.status?.status_name)?.toUpperCase();
+            const paymentStatus = pStatus === 'COMPLETED' ? 'COMPLETED' : 'PENDING';
 
             return {
               id: String(b.booking_id),
               photographerId: b.photographer_id,
               photographerName: b.photographer?.full_name || 'Unknown',
-              photographerAvatar: toAbsoluteImageUrl(b.photographer?.profile_image) || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200',
+              photographerAvatar: toAbsoluteImageUrl(b.photographer?.profile_image) || '',
+              photographerRating: 0, // Default rating as it's missing in API response
               serviceTitle: b.package?.name || 'Service',
               bookingDate: b.event_date,
               bookingTime: new Date(b.event_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               status: mappedStatus,
               location: b.location,
               amount: Number(b.amount),
-              packageName: b.package?.package_name || 'Standard Package',
+              packageName: b.package?.name || 'Standard Package',
               specialRequirements: b.notes,
               createdAt: b.created_at,
+              paymentStatus: paymentStatus,
+              paymentMethod: b.payment?.method?.method_name
             };
           });
           setBookings(mappedBookings);
@@ -114,21 +140,158 @@ export const ClientBookings: React.FC<Props> = ({ onNavigate }) => {
   }, []);
 
   useEffect(() => {
-    const handleBookingUpdated = (updatedBooking: Booking) => {
+    const handleBookingUpdated = (updatedBooking: any) => {
       setBookings((prev) =>
-        prev.map((b) => (b.id === updatedBooking.id ? updatedBooking : b))
+        prev.map((b) => {
+          if (b.id === updatedBooking.id) {
+            // Normalize status from socket (which sends lowercase status name)
+            let mappedStatus = b.status; // default to current
+            if (updatedBooking.status) {
+              const s = updatedBooking.status.toUpperCase();
+              if (s === 'ACCEPTED') mappedStatus = 'confirmed';
+              else if (s === 'COMPLETED') mappedStatus = 'completed';
+              else if (s === 'CANCELLED') mappedStatus = 'cancelled';
+              else if (s === 'REJECTED') mappedStatus = 'rejected';
+              else if (s === 'PENDING') mappedStatus = 'pending';
+            }
+
+            return {
+              ...b,
+              ...updatedBooking,
+              status: mappedStatus,
+              paymentStatus: updatedBooking.paymentStatus || b.paymentStatus
+            };
+          }
+          return b;
+        })
       );
-      Alert.alert('Booking Update', `Your booking ${updatedBooking.id} has been ${updatedBooking.status}`);
+
+      // If receipt data is present in the socket event, show it
+      if (updatedBooking.receiptData) {
+        setReceiptData(updatedBooking.receiptData);
+        setShowReceiptModal(true);
+        // Also close webview if open (though it should be closed by intercept logic)
+        setShowKhaltiWebView(false);
+      }
+
+      Alert.alert('Booking Update', `Your booking payment #${updatedBooking.id} has been updated.`);
     };
 
+
     socketService.on('booking_updated', handleBookingUpdated);
+
+    // Ensure we join the user's room to receive updates
+    const joinSocketRoom = async () => {
+      try {
+        const token = await storage.getToken();
+        if (token) {
+          // Decode token to get user ID (simple decode or use a library)
+          // Assuming simple JWT structure where payload is part 2
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          const userId = payload.user_id || payload.id || payload.sub;
+
+          if (userId) {
+            socketService.emit('join_room', userId);
+            console.log('Joined socket room:', userId);
+          }
+        }
+      } catch (e) {
+        console.error('Error joining socket room:', e);
+      }
+    };
+
+    joinSocketRoom();
+
     return () => socketService.off('booking_updated', handleBookingUpdated);
   }, []);
+
+  const handlePayNow = async (booking: Booking) => {
+    try {
+      setPaymentLoading(true);
+      setCurrentPaymentBooking(booking);
+      currentBookingIdRef.current = String(booking.id);
+      console.log("[Payment] Initiating for booking:", booking.id);
+      const token = await storage.getToken();
+
+      if (!token) return;
+
+      const initiateRes = await apiService.initiatePayment({
+        booking_id: Number(booking.id),
+        amount: booking.amount * 100, // Convert to paisa
+        return_url: `https://example.com/payment/?booking_id=${booking.id}`,
+        website_url: "https://example.com/"
+      }, token);
+
+      if (initiateRes.success && initiateRes.data && initiateRes.data.payment_url) {
+        setKhaltiUrl(initiateRes.data.payment_url);
+        setShowKhaltiWebView(true);
+      } else {
+        Alert.alert("Payment Error", "Failed to initiate payment. Please try again.");
+      }
+    } catch (error) {
+      console.error("Payment initiation error:", error);
+      Alert.alert("Payment Error", "Failed to initiate payment.");
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  const handleKhaltiSuccess = async (pidx: string, extractedBookingId?: string) => {
+    setShowKhaltiWebView(false);
+    setPaymentLoading(true);
+    try {
+      const token = await storage.getToken();
+      if (!token) return;
+
+      const bookingId = extractedBookingId || currentBookingIdRef.current || currentPaymentBooking?.id;
+      console.log("[Payment] Verifying for pidx:", pidx, "Booking ID (Extracted/Ref/State):", bookingId);
+
+      const verifyRes = await apiService.verifyPayment(pidx, token, bookingId ? Number(bookingId) : undefined);
+      if (verifyRes.success) {
+        // Manually update local state for immediate UI feedback
+        if (currentPaymentBooking) {
+          setBookings(prev => prev.map(b =>
+            b.id === currentPaymentBooking.id
+              ? { ...b, paymentStatus: 'COMPLETED', status: 'confirmed' }
+              : b
+          ));
+
+          // Use payment details from backend response (includes commission breakdown)
+          const pd = verifyRes.paymentDetails;
+          const user = await storage.getUser();
+          setReceiptData({
+            transactionId: pd?.transactionId || pidx,
+            date: pd?.date || new Date().toLocaleDateString(),
+            amount: pd?.amount || Number(currentPaymentBooking.amount),
+            method: pd?.method || 'Khalti',
+            photographerName: pd?.photographerName || currentPaymentBooking.photographerName,
+            packageName: pd?.packageName || currentPaymentBooking.packageName || "Package",
+            bookingDates: pd?.bookingDates || [currentPaymentBooking.bookingDate],
+            customerName: pd?.customerName || user?.full_name || "You",
+            customerEmail: pd?.customerEmail || user?.email || "",
+            platformFeePercentage: pd?.platformFeePercentage || 0,
+            commissionAmount: pd?.commissionAmount || 0,
+            photographerAmount: pd?.photographerAmount || 0
+          });
+          setShowReceiptModal(true);
+        }
+      } else {
+        Alert.alert("Payment Verification Failed", "Payment was not verified. Please contact support.");
+      }
+    } catch (error) {
+      console.error("Verification error", error);
+      Alert.alert("Error", "Failed to verify payment.");
+    } finally {
+      setPaymentLoading(false);
+      setCurrentPaymentBooking(null);
+    }
+  };
 
   const filteredBookings = useMemo(() => {
     if (activeTab === 'upcoming') {
       return bookings.filter(b => b.status === 'pending' || b.status === 'confirmed');
     }
+    // Filter by exact status for other tabs
     return bookings.filter(b => b.status === activeTab);
   }, [activeTab, bookings]);
 
@@ -155,9 +318,9 @@ export const ClientBookings: React.FC<Props> = ({ onNavigate }) => {
       case 'cancelled':
       default: return '#6b7280';
     }
-  };
+  }
 
-  const TabButton = ({ tab }: { tab: BookingStatus }) => {
+  const TabButton = ({ tab }: { tab: TabType }) => {
     const active = activeTab === tab;
     return (
       <TouchableOpacity
@@ -189,14 +352,26 @@ export const ClientBookings: React.FC<Props> = ({ onNavigate }) => {
                 <ThemedText type="base" weight="semibold" style={{ color: gray900 }}>
                   {booking.photographerName}
                 </ThemedText>
-                <View style={statusPillStyle(booking.status)}>
-                  <ThemedText
-                    type="xs"
-                    weight="medium"
-                    style={{ color: statusTextColor(booking.status) }}
-                  >
-                    {statusLabel}
-                  </ThemedText>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  <View style={statusPillStyle(booking.status)}>
+                    <ThemedText
+                      type="xs"
+                      weight="medium"
+                      style={{ color: statusTextColor(booking.status) }}
+                    >
+                      {statusLabel}
+                    </ThemedText>
+                  </View>
+                  {booking.paymentStatus === 'COMPLETED' && (
+                    <View style={[styles.statusPill, { backgroundColor: '#dcfce7' }]}>
+                      <ThemedText type="xs" weight="bold" style={{ color: '#16a34a' }}>PAID</ThemedText>
+                    </View>
+                  )}
+                  {booking.status === 'confirmed' && booking.paymentStatus !== 'COMPLETED' && (
+                    <View style={[styles.statusPill, { backgroundColor: '#fee2e2' }]}>
+                      <ThemedText type="xs" weight="bold" style={{ color: '#ef4444' }}>UNPAID</ThemedText>
+                    </View>
+                  )}
                 </View>
               </View>
               <ThemedText type="sm" style={{ color: gray500 }}>
@@ -230,12 +405,55 @@ export const ClientBookings: React.FC<Props> = ({ onNavigate }) => {
 
           <View style={styles.actionContainer}>
             {activeTab === 'upcoming' && (
+              <View />
+            )}
+
+            {booking.status === 'confirmed' && booking.paymentStatus !== 'COMPLETED' && (
               <TouchableOpacity
-                style={[styles.messageBtn, { backgroundColor: '#eff6ff' }]}
-                onPress={() => onNavigate?.('client-chat', { photographerId: booking.photographerId })}
+                style={styles.payViaKhaltiBtn}
+                onPress={() => handlePayNow(booking)}
               >
-                <Ionicons name="chatbubble-outline" size={18} color="#2563eb" />
-                <ThemedText type="sm" weight="semibold" style={{ color: '#2563eb' }}>Message</ThemedText>
+                <Image
+                  source={require('../../assets/images/khalti-logo.png')}
+                  style={{ width: 80, height: 24, resizeMode: 'contain', marginRight: 8 }}
+                />
+                <ThemedText type="sm" weight="bold" style={{ color: '#ef4444' }}>Pay via Khalti</ThemedText>
+              </TouchableOpacity>
+            )}
+
+            {booking.paymentStatus === 'COMPLETED' && (
+              <TouchableOpacity
+                style={[styles.payViaKhaltiBtn, { borderColor: '#16a34a', backgroundColor: '#f0fdf4' }]}
+                onPress={async () => {
+                  try {
+                    const token = await storage.getToken();
+                    if (!token) return;
+                    const res = await apiService.getPaymentDetails(Number(booking.id), token);
+                    if (res.success && res.data) {
+                      setReceiptData(res.data);
+                    } else {
+                      // Fallback to basic data
+                      setReceiptData({
+                        transactionId: `BOOKING-${booking.id}`,
+                        date: new Date(booking.bookingDate).toLocaleDateString(),
+                        amount: booking.amount,
+                        method: booking.paymentMethod || 'Khalti',
+                        photographerName: booking.photographerName,
+                        packageName: booking.packageName || "Package",
+                        bookingDates: [new Date(booking.bookingDate).toLocaleDateString()],
+                        customerName: "You",
+                        customerEmail: ""
+                      });
+                    }
+                    setShowReceiptModal(true);
+                  } catch (err) {
+                    console.error('Failed to fetch payment details:', err);
+                    Alert.alert('Error', 'Failed to load receipt details.');
+                  }
+                }}
+              >
+                <Ionicons name="receipt-outline" size={20} color="#16a34a" style={{ marginRight: 8 }} />
+                <ThemedText type="sm" weight="bold" style={{ color: '#16a34a' }}>Download Receipt</ThemedText>
               </TouchableOpacity>
             )}
 
@@ -310,6 +528,21 @@ export const ClientBookings: React.FC<Props> = ({ onNavigate }) => {
         />
       )}
       <ClientBottomNav />
+
+      <KhaltiWebView
+        visible={showKhaltiWebView}
+        paymentUrl={khaltiUrl}
+        onClose={() => setShowKhaltiWebView(false)}
+        onPaymentComplete={(pidx, bId) => handleKhaltiSuccess(pidx, bId)}
+      />
+
+      {receiptData && (
+        <PaymentReceipt
+          visible={showReceiptModal}
+          data={receiptData}
+          onClose={() => setShowReceiptModal(false)}
+        />
+      )}
     </View>
   );
 };
@@ -396,6 +629,17 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     gap: 8,
+  },
+  payViaKhaltiBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderColor: '#ef4444',
+    borderWidth: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   reviewBtn: {
     flexDirection: 'row',

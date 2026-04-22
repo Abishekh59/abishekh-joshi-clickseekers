@@ -10,16 +10,17 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { ThemedText } from "../components/themed-text";
 import { apiService } from "../services/api";
 
 const { width } = Dimensions.get("window");
 
 export default function ResetPassword() {
+  const Text = ThemedText;
   const router = useRouter();
   const params = useLocalSearchParams();
   const email = params.email as string;

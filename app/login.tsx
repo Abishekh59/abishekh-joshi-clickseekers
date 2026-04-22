@@ -1,6 +1,6 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { jwtDecode } from 'jwt-decode';
+import { jwtDecode } from "jwt-decode";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
@@ -9,11 +9,11 @@ import {
   Image,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
+import { ThemedText } from "../components/themed-text";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { apiService } from "../services/api";
 import { storage } from "../utils/storage";
@@ -56,12 +56,9 @@ export default function Login() {
           decodedUser = {};
         }
 
-        // Merge user from payload with decoded token
-        // Token fields (identity) take priority over payload fields for basic auth info, 
-        // but payload has the profile_image/bio.
         const finalUser = {
           ...(user || {}),
-          ...decodedUser
+          ...decodedUser,
         };
         await storage.saveUser(finalUser);
 
@@ -69,26 +66,47 @@ export default function Login() {
         try {
           const kycRes = await apiService.getKycStatus(token);
           if (kycRes && kycRes.data) {
-            await AsyncStorage.setItem('@clickseekers_kyc_status', JSON.stringify(kycRes.data));
+            await AsyncStorage.setItem(
+              "@clickseekers_kyc_status",
+              JSON.stringify(kycRes.data),
+            );
           } else {
-            await AsyncStorage.removeItem('@clickseekers_kyc_status');
+            await AsyncStorage.removeItem("@clickseekers_kyc_status");
           }
         } catch (e) {
           // If error, clear any old KYC status
-          await AsyncStorage.removeItem('@clickseekers_kyc_status');
+          await AsyncStorage.removeItem("@clickseekers_kyc_status");
         }
 
         if (decodedUser.role === "PHOTOGRAPHER") {
+          // Initialize socket connection and join room
+          const { socketService } = await import("../services/socket");
+          socketService.connect(token);
+          socketService.emit('join_room', decodedUser.user_id);
+
           router.replace("../Photographer/PhotographerDashboard");
         } else if (decodedUser.role === "CLIENT") {
+          // Initialize socket connection and join room
+          const { socketService } = await import("../services/socket");
+          socketService.connect(token);
+          socketService.emit('join_room', decodedUser.user_id);
+
           router.replace("../Client/ClientDashboard");
+        } else if (decodedUser.role === "ADMIN") {
+          // Initialize socket connection and join room
+          const { socketService } = await import("../services/socket");
+          socketService.connect(token);
+          socketService.emit('join_room', decodedUser.user_id);
+
+          router.replace("../Admin/AdminDashboard");
         } else {
           router.replace("/");
         }
         return;
       }
 
-      const failureMessage = (response as any)?.message || "Unable to login. Please try again.";
+      const failureMessage =
+        (response as any)?.message || "Unable to login. Please try again.";
       Alert.alert("Login Failed", failureMessage);
     } catch (error: any) {
       Alert.alert("Login Failed", error.message || "Invalid credentials");
@@ -102,7 +120,10 @@ export default function Login() {
       {/* 1. Header Section (Black) */}
       <View style={styles.headerBackground}>
         <View>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+          >
             <Ionicons name="chevron-back" size={28} color="#FFF" />
           </TouchableOpacity>
           <View style={styles.logoContainer}>
@@ -117,18 +138,27 @@ export default function Login() {
       {/* 2. Form Body (White Card) */}
       <View style={styles.formContainer}>
         <ScrollView
+          testID="login-scroll-view"
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.title}>Welcome back!</Text>
-          <Text style={styles.subtitle}>Sign in to your {role.toLowerCase()} account</Text>
+          <ThemedText style={styles.title}>Welcome back!</ThemedText>
+          <ThemedText style={styles.subtitle}>
+            Sign in to your {role.toLowerCase()} account
+          </ThemedText>
 
           <View style={styles.form}>
             {/* Email Input */}
             <View style={styles.inputWrapper}>
-              <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
+              <Ionicons
+                name="mail-outline"
+                size={20}
+                color="#666"
+                style={styles.inputIcon}
+              />
               <TextInput
+                testID="email-input"
                 placeholder="Email Address"
                 placeholderTextColor="#999"
                 style={styles.input}
@@ -142,8 +172,14 @@ export default function Login() {
             {/* Password Input */}
             <View style={styles.inputWrapper}>
               <View style={styles.passwordFieldContainer}>
-                <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={20}
+                  color="#666"
+                  style={styles.inputIcon}
+                />
                 <TextInput
+                  testID="password-input"
                   placeholder="Password"
                   placeholderTextColor="#999"
                   style={styles.passwordInput}
@@ -166,13 +202,15 @@ export default function Login() {
             </View>
 
             <TouchableOpacity
+              testID="forgot-password-link"
               style={styles.forgotBtn}
               onPress={() => router.push("/forgot-password")}
             >
-              <Text style={styles.forgotText}>Forgot Password?</Text>
+              <ThemedText style={styles.forgotText}>Forgot Password?</ThemedText>
             </TouchableOpacity>
 
             <TouchableOpacity
+              testID="login-button"
               style={[styles.loginButton, loading && styles.buttonDisabled]}
               onPress={handleLogin}
               disabled={loading}
@@ -181,14 +219,18 @@ export default function Login() {
               {loading ? (
                 <ActivityIndicator color="#FFF" size="small" />
               ) : (
-                <Text style={styles.loginButtonText}>Login</Text>
+                <ThemedText style={styles.loginButtonText}>Login</ThemedText>
               )}
             </TouchableOpacity>
 
             <View style={styles.footer}>
-              <Text style={styles.footerText}>New to ClickSeekers? </Text>
-              <TouchableOpacity onPress={() => router.push({ pathname: "/register", params: { role } })}>
-                <Text style={styles.registerLink}>Register Now</Text>
+              <ThemedText style={styles.footerText}>New to ClickSeekers? </ThemedText>
+              <TouchableOpacity
+                onPress={() =>
+                  router.push({ pathname: "/register", params: { role } })
+                }
+              >
+                <ThemedText style={styles.registerLink}>Register Now</ThemedText>
               </TouchableOpacity>
             </View>
           </View>
@@ -205,16 +247,16 @@ const styles = StyleSheet.create({
   },
   headerBackground: {
     height: height * 0.35, // Top 35% of the screen is black
-    justifyContent: 'center',
-    backgroundColor: '#000',
+    justifyContent: "center",
+    backgroundColor: "#000",
   },
   backBtn: {
     width: 45,
     height: 45,
     justifyContent: "center",
-    alignItems: 'center',
+    alignItems: "center",
     marginLeft: 20,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: "rgba(255,255,255,0.15)",
     borderRadius: 25,
   },
   logoContainer: {
@@ -225,7 +267,7 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     resizeMode: "contain",
-    tintColor: '#FFF'
+    tintColor: "#FFF",
   },
   formContainer: {
     flex: 1,
@@ -244,7 +286,8 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: "900",
     color: "#000",
-    textAlign: 'left',
+    textAlign: "left",
+    lineHeight: 40,
   },
   subtitle: {
     fontSize: 16,
@@ -253,7 +296,7 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   form: {
-    width: '100%',
+    width: "100%",
   },
   inputWrapper: {
     flexDirection: "row",
@@ -271,31 +314,31 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: "#000",
-    fontWeight: '500'
+    fontWeight: "500",
   },
   passwordFieldContainer: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   passwordInput: {
     flex: 1,
     fontSize: 16,
     color: "#000",
-    fontWeight: '500'
+    fontWeight: "500",
   },
   eyeIconButton: {
     padding: 10,
     marginRight: -10,
   },
   forgotBtn: {
-    alignSelf: 'flex-end',
+    alignSelf: "flex-end",
     marginBottom: 30,
   },
   forgotText: {
     color: "#666",
     fontSize: 14,
-    fontWeight: '600'
+    fontWeight: "600",
   },
   loginButton: {
     backgroundColor: "#FFFFFF",
@@ -332,6 +375,6 @@ const styles = StyleSheet.create({
   registerLink: {
     color: "#4A90E2",
     fontSize: 15,
-    fontWeight: "500"
+    fontWeight: "500",
   },
 });

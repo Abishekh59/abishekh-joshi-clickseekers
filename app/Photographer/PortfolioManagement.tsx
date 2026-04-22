@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ThemedText } from "../../components/themed-text";
+import { PHOTOGRAPHER_TYPES } from "../../constants/photographerTypes";
 import { useAppTheme } from "../../hooks/use-app-theme";
 import {
   Comment as APIComment,
@@ -35,58 +36,70 @@ interface PortfolioManagementProps {
   onBack?: () => void;
 }
 
-const UPLOAD_CATEGORIES = [
-  "Portrait",
-  "Event",
-  "Product",
-  "Wedding",
-  "Aerial",
-  "Fashion",
-  "Travel",
-  "Landscape",
-  "Culture",
-  "Nature",
-  "Wildlife",
-  "Sports",
-  "Family",
-  "Newborn",
-  "Commercial",
-  "Fine Art",
-  "Real Estate",
-  "Other",
-] as const;
+const UPLOAD_CATEGORIES = PHOTOGRAPHER_TYPES;
 
 type UploadCategory = (typeof UPLOAD_CATEGORIES)[number];
-const CATEGORY_TO_API: Record<UploadCategory, PortfolioCategoryName> = {
-  Wedding: "WEDDING",
-  Event: "EVENT",
-  Product: "PRODUCT",
+
+const CATEGORY_TO_API: Record<string, PortfolioCategoryName> = {
   Portrait: "PORTRAIT",
-  Aerial: "AERIAL",
-  Fashion: "FASHION",
-  Travel: "TRAVEL",
   Landscape: "LANDSCAPE",
-  Culture: "CULTURE",
-  Nature: "NATURE",
   Wildlife: "WILDLIFE",
+  Street: "STREET",
+  Fashion: "FASHION",
+  Event: "EVENT",
   Sports: "SPORTS",
-  Family: "FAMILY",
-  Newborn: "NEWBORN",
-  Commercial: "COMMERCIAL",
+  Product: "PRODUCT",
+  Food: "FOOD",
+  Travel: "TRAVEL",
   "Fine Art": "FINE_ART",
+  Conceptual: "CONCEPTUAL",
+  Abstract: "ABSTRACT",
+  "Black & White": "BLACK_AND_WHITE",
+  Silhouette: "SILHOUETTE",
+  Macro: "MACRO",
+  Astrophotography: "ASTROPHOTOGRAPHY",
+  "Long Exposure": "LONG_EXPOSURE",
+  "Aerial/Drone": "AERIAL_DRONE",
+  Architectural: "ARCHITECTURAL",
   "Real Estate": "REAL_ESTATE",
+  Commercial: "COMMERCIAL",
+  Editorial: "EDITORIAL",
+  Documentary: "DOCUMENTARY",
+  Photojournalism: "PHOTOJOURNALISM",
+  Lifestyle: "LIFESTYLE",
+  "Influencer/Instagram": "INFLUENCER_INSTAGRAM",
+  Cinematic: "CINEMATIC",
+  Minimalist: "MINIMALIST",
   Other: "OTHER",
+};
+
+// Helper to format relative time
+const getRelativeTime = (dateString?: string) => {
+  if (!dateString) return "Recently";
+  const now = new Date();
+  const date = new Date(dateString);
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (diffInSeconds < 60) return "Just now";
+  const diffInMinutes = Math.floor(diffInSeconds / 60);
+  if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+  const diffInHours = Math.floor(diffInMinutes / 60);
+  if (diffInHours < 24) return `${diffInHours}h ago`;
+  const diffInDays = Math.floor(diffInHours / 24);
+  return `${diffInDays}d ago`;
 };
 
 type DisplayPortfolioItem = {
   id: number;
   title: string;
   description: string | null;
+  location: string | null;
   category: PortfolioCategoryName | "UNKNOWN";
   imageUrl: string | null;
   likes: number;
   views: number;
   comments: number;
+  created_at?: string;
 };
 
 const CATEGORY_OPTIONS: {
@@ -94,86 +107,55 @@ const CATEGORY_OPTIONS: {
   value: PortfolioCategoryName | null;
 }[] = [
   { label: "All", value: null },
-  { label: "Portrait", value: "PORTRAIT" },
-  { label: "Event", value: "EVENT" },
-  { label: "Product", value: "PRODUCT" },
-  { label: "Wedding", value: "WEDDING" },
-  { label: "Aerial", value: "AERIAL" },
-  { label: "Fashion", value: "FASHION" },
-  { label: "Travel", value: "TRAVEL" },
-  { label: "Landscape", value: "LANDSCAPE" },
-  { label: "Culture", value: "CULTURE" },
-  { label: "Nature", value: "NATURE" },
-  { label: "Wildlife", value: "WILDLIFE" },
-  { label: "Sports", value: "SPORTS" },
-  { label: "Family", value: "FAMILY" },
-  { label: "Newborn", value: "NEWBORN" },
-  { label: "Commercial", value: "COMMERCIAL" },
-  { label: "Fine Art", value: "FINE_ART" },
-  { label: "Real Estate", value: "REAL_ESTATE" },
-  { label: "Other", value: "OTHER" },
+  ...PHOTOGRAPHER_TYPES.map((cat) => ({
+    label: cat,
+    value: CATEGORY_TO_API[cat] || ("OTHER" as PortfolioCategoryName),
+  })),
 ];
 
 const formatCategoryLabel = (value: PortfolioCategoryName | "UNKNOWN") => {
-  switch (value) {
-    case "PORTRAIT":
-      return "Portrait";
-    case "EVENT":
-      return "Event";
-    case "WEDDING":
-      return "Wedding";
-    case "AERIAL":
-      return "Aerial";
-    case "FASHION":
-      return "Fashion";
-    case "TRAVEL":
-      return "Travel";
-    case "LANDSCAPE":
-      return "Landscape";
-    case "CULTURE":
-      return "Culture";
-    case "NATURE":
-      return "Nature";
-    case "WILDLIFE":
-      return "Wildlife";
-    case "SPORTS":
-      return "Sports";
-    case "FAMILY":
-      return "Family";
-    case "NEWBORN":
-      return "Newborn";
-    case "COMMERCIAL":
-      return "Commercial";
-    case "FINE_ART":
-      return "Fine Art";
-    case "REAL_ESTATE":
-      return "Real Estate";
-    case "PRODUCT":
-      return "Product";
-    case "OTHER":
-      return "Other";
-    default:
-      return "Uncategorized";
-  }
+  const entry = Object.entries(CATEGORY_TO_API).find(
+    ([_, val]) => val === value,
+  );
+  return entry ? entry[0] : "Uncategorized";
 };
 
-const toAbsoluteImageUrl = (img: PortfolioImage) => {
-  if (img?.image_url && img.image_url.trim() !== "") {
-    if (
-      img.image_url.startsWith("http://") ||
-      img.image_url.startsWith("https://")
-    )
-      return img.image_url;
-    const path = img.image_url.startsWith("/")
-      ? img.image_url
-      : `/${img.image_url}`;
-    return `${API_HOST}${path}`;
+const toAbsoluteImageUrl = (
+  img: PortfolioImage | string | null | undefined,
+  timestamp?: number,
+) => {
+  if (!img) return null;
+  const cacheBust = timestamp ? `?t=${timestamp}` : "";
+
+  let url = "";
+  if (typeof img === "string") {
+    url = img;
+  } else {
+    url = img.image_url;
+    // Fallback for older images stored only as binary in DB
+    if (!url && img.image_id) {
+      const fallbackUrl = `${API_HOST}/api/photographer/portfolio/image/${img.image_id}${cacheBust}`;
+      console.log(
+        `[toAbsoluteImageUrl] Using fallback for image ${img.image_id}:`,
+        fallbackUrl,
+      );
+      return fallbackUrl;
+    }
   }
-  // Fallback for older images stored only as binary in DB
-  if (img?.image_id) {
-    return `${API_HOST}/api/photographer/portfolio/image/${img.image_id}`;
+
+  if (!url || url.trim() === "") {
+    console.debug(`[toAbsoluteImageUrl] Empty URL, returning null`);
+    return null;
   }
-  return null;
+
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return url.includes("?")
+      ? `${url}&t=${timestamp || Date.now()}`
+      : `${url}${cacheBust}`;
+  }
+  const path = url.startsWith("/") ? url : `/${url}`;
+  const finalUrl = `${API_HOST}${path}${cacheBust}`;
+  return finalUrl;
 };
 
 export default function PortfolioManagement({
@@ -205,9 +187,11 @@ export default function PortfolioManagement({
   const [category, setCategory] = useState<UploadCategory | "">("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("");
   const [images, setImages] = useState<PortfolioImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] =
     useState<ImagePicker.ImagePickerAsset | null>(null);
@@ -216,6 +200,7 @@ export default function PortfolioManagement({
     null,
   );
   const [userName, setUserName] = useState<string>("Photographer");
+  const [userProfileImage, setUserProfileImage] = useState<string | null>(null);
 
   // Edit states
   const [editingItem, setEditingItem] = useState<DisplayPortfolioItem | null>(
@@ -223,6 +208,7 @@ export default function PortfolioManagement({
   );
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editLocation, setEditLocation] = useState("");
   const [editCategory, setEditCategory] = useState<UploadCategory | "">("");
   const [showOptionsModal, setShowOptionsModal] =
     useState<DisplayPortfolioItem | null>(null);
@@ -230,32 +216,67 @@ export default function PortfolioManagement({
   const [showCommentsModal, setShowCommentsModal] = useState(false);
   const [selectedPostForComments, setSelectedPostForComments] =
     useState<DisplayPortfolioItem | null>(null);
+  const [refreshTimestamp, setRefreshTimestamp] = useState<number>(Date.now());
+  const [showLikesPanel, setShowLikesPanel] = useState(false);
+  const [selectedPostForLikes, setSelectedPostForLikes] =
+    useState<DisplayPortfolioItem | null>(null);
+  const [viewDetailsUser, setViewDetailsUser] = useState<any | null>(null);
+  const [showUserDetailsModal, setShowUserDetailsModal] = useState(false);
+  const [likedImageIds, setLikedImageIds] = useState<number[]>([]);
 
   useEffect(() => {
-    const getName = async () => {
+    const fetchProfile = async () => {
       try {
         const token = await storage.getToken();
         if (token) {
-          const decoded: any = jwtDecode(token);
-          setUserName(decoded.full_name || "Photographer");
+          const res = await apiService.getMe(token);
+          if (res.success && res.data) {
+            setUserName(res.data.full_name || "Photographer");
+            setUserId(res.data.user_id);
+            setUserProfileImage(res.data.profile_image || null);
+          } else {
+            // Fallback for older data structures
+            const decoded: any = jwtDecode(token);
+            setUserName(decoded.full_name || "Photographer");
+          }
         }
       } catch (e) {
-        console.error("Error decoding token:", e);
+        console.error("Error fetching profile:", e);
       }
     };
-    getName();
+    fetchProfile();
   }, []);
 
-  const mappedItems: DisplayPortfolioItem[] = images.map((img) => ({
-    id: img.image_id,
-    title: img.title || "Untitled photo",
-    description: img.description || null,
-    category: img.portfolio?.category?.category_name || "UNKNOWN",
-    imageUrl: toAbsoluteImageUrl(img),
-    likes: img.likes_count || 0,
-    views: img.views_count || 0,
-    comments: img.comments_count || 0,
-  }));
+  const mappedItems: DisplayPortfolioItem[] = images.map((img) => {
+    const displayItem = {
+      id: img.image_id,
+      title: img.title || "Untitled photo",
+      description: img.description || null,
+      location: img.location || null,
+      category: (img.portfolio?.category?.category_name ||
+        "UNKNOWN") as PortfolioCategoryName | "UNKNOWN",
+      imageUrl: toAbsoluteImageUrl(img, refreshTimestamp),
+      likes: img.likes_count || 0,
+      views: img.views_count || 0,
+      comments: img.comments_count || 0,
+      created_at: img.created_at,
+    };
+
+    // Debug log
+    if (!displayItem.imageUrl) {
+      console.warn(
+        `[mappedItems] Missing imageUrl for image ${img.image_id}:`,
+        {
+          raw_image_url: img.image_url,
+          title: img.title,
+          image_id: img.image_id,
+          portfolio_id: img.portfolio_id,
+        },
+      );
+    }
+
+    return displayItem;
+  });
 
   const filteredItems = selectedCategory
     ? mappedItems.filter((item) => item.category === selectedCategory)
@@ -282,11 +303,10 @@ export default function PortfolioManagement({
                 prev.filter((img) => img.image_id !== imageId),
               );
 
-              if (selectedImageIndex !== null) {
-                if (filteredItems.length <= 1) {
-                  setSelectedImageIndex(null);
-                }
-              }
+              // Close any open options or detail views
+              setShowOptionsModal(null);
+              setSelectedImageIndex(null);
+
               Alert.alert("Success", "Post deleted successfully");
             } catch (err: any) {
               Alert.alert("Error", err.message || "Failed to delete image");
@@ -301,7 +321,8 @@ export default function PortfolioManagement({
     setEditingItem(item);
     setEditTitle(item.title);
     setEditDescription(item.description || "");
-    setEditCategory(item.category as UploadCategory);
+    setEditLocation(item.location || "");
+    setEditCategory(formatCategoryLabel(item.category) as UploadCategory);
     setShowOptionsModal(null);
   };
 
@@ -326,6 +347,7 @@ export default function PortfolioManagement({
         {
           title: editTitle.trim(),
           description: editDescription.trim() || undefined,
+          location: editLocation.trim() || undefined,
           category: apiCategory,
         },
         token,
@@ -339,6 +361,46 @@ export default function PortfolioManagement({
       Alert.alert("Error", err.message || "Failed to update post");
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleLike = async (item: DisplayPortfolioItem) => {
+    try {
+      const token = await storage.getToken();
+      if (!token) return;
+
+      const isLiked = likedImageIds.includes(item.id);
+
+      // Optimistic UI update
+      setLikedImageIds((prev) =>
+        isLiked ? prev.filter((id) => id !== item.id) : [...prev, item.id],
+      );
+
+      // Update the local images state to reflect count change
+      setImages((prev) =>
+        prev.map((img) => {
+          if (img.image_id === item.id) {
+            return {
+              ...img,
+              likes_count: (img.likes_count || 0) + (isLiked ? -1 : 1),
+            };
+          }
+          return img;
+        }),
+      );
+
+      const res = await apiService.likePortfolioImage(item.id, token);
+      if (res.success && res.data) {
+        // Sync with server response if possible
+        const serverLiked = res.data.isLiked;
+        setLikedImageIds((prev) => {
+          const others = prev.filter((id) => id !== item.id);
+          return serverLiked ? [...others, item.id] : others;
+        });
+      }
+    } catch (err) {
+      console.error("Failed to toggle like:", err);
+      // Revert if needed, but usually not necessary for portfolio view
     }
   };
 
@@ -369,8 +431,29 @@ export default function PortfolioManagement({
           token,
           selectedCategory || undefined,
         );
+
+        console.log("[fetchPortfolio] API Response:", {
+          success: res.success,
+          imageCount: res.data?.length || 0,
+          firstImageUrl: res.data?.[0]?.image_url || "NONE",
+          sample: res.data?.slice(0, 2).map((img) => ({
+            id: img.image_id,
+            title: img.title,
+            image_url: img.image_url,
+          })),
+        });
+
         setImages(res.data || []);
+
+        // Fetch liked image IDs to show correct heart state
+        const likesRes = await apiService.getUserLikes(token);
+        if (likesRes.success && likesRes.data) {
+          setLikedImageIds(likesRes.data.likedImageIds || []);
+        }
+
+        setRefreshTimestamp(Date.now());
       } catch (err: any) {
+        console.error("[PortfolioManagement] Fetch Error:", err);
         setError(err?.message || "Failed to load portfolio");
         setImages([]);
       } finally {
@@ -384,12 +467,25 @@ export default function PortfolioManagement({
   useEffect(() => {
     fetchPortfolio();
 
-    const handleUpdate = () => fetchPortfolio(true);
+    const handleUpdate = (data: any) => {
+      // Only refresh if the update is for this photographer
+      if (data && data.photographerId && userId) {
+        if (
+          String(data.photographerId).toLowerCase() ===
+          String(userId).toLowerCase()
+        ) {
+          fetchPortfolio(true);
+        }
+      } else {
+        // Fallback for legacy events or if userId not yet loaded
+        fetchPortfolio(true);
+      }
+    };
     socketService.on("photographer_updated", handleUpdate);
     return () => {
       socketService.off("photographer_updated", handleUpdate);
     };
-  }, [fetchPortfolio]);
+  }, [fetchPortfolio, userId]);
 
   const handleUploadPress = () => {
     if (!showUpload) {
@@ -408,7 +504,7 @@ export default function PortfolioManagement({
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: "images",
       allowsEditing: true,
       quality: 0.8,
     });
@@ -458,6 +554,7 @@ export default function PortfolioManagement({
         {
           title: title.trim(),
           description: description.trim() || undefined,
+          location: location.trim() || undefined,
           category: apiCategory,
           file: {
             uri: selectedImage.uri,
@@ -468,9 +565,11 @@ export default function PortfolioManagement({
         token,
       );
 
+      Alert.alert("Success", "Portfolio photo uploaded successfully!");
       setShowUpload(false);
       setTitle("");
       setDescription("");
+      setLocation("");
       setCategory("");
       setSelectedImage(null);
       await fetchPortfolio();
@@ -487,80 +586,63 @@ export default function PortfolioManagement({
   }: {
     item: DisplayPortfolioItem;
     index: number;
-  }) => (
-    <TouchableOpacity
-      style={[styles.portfolioItemContainer, { backgroundColor: gray100 }]}
-      onPress={() => setSelectedImageIndex(index)}
-      activeOpacity={0.9}
-    >
-      {item.imageUrl && (
-        <Image
-          source={{ uri: item.imageUrl }}
-          style={styles.portfolioImage}
-          resizeMode="cover"
-        />
-      )}
-      <View style={styles.portfolioOverlay}>
-        <View style={styles.portfolioTopRow}>
+  }) => {
+    // Debug log to see what's happening
+    console.log(`[PortfolioItem ${index}]`, {
+      id: item.id,
+      title: item.title,
+      imageUrl: item.imageUrl ? "✓" : "✗ (NULL/EMPTY)",
+      category: item.category,
+    });
+
+    return (
+      <TouchableOpacity
+        style={[styles.portfolioItemContainer, { backgroundColor: gray100 }]}
+        onPress={() => setSelectedImageIndex(index)}
+        activeOpacity={0.9}
+      >
+        {item.imageUrl ? (
+          <Image
+            source={{ uri: item.imageUrl }}
+            style={styles.portfolioImage}
+            resizeMode="cover"
+            onError={(e) => console.log(`[Image Error ${item.id}]`, e)}
+          />
+        ) : (
           <View
             style={[
-              styles.categoryBadge,
-              { backgroundColor: "rgba(255, 255, 255, 0.2)" },
+              styles.portfolioImage,
+              {
+                backgroundColor: gray200,
+                justifyContent: "center",
+                alignItems: "center",
+              },
             ]}
           >
+            <Ionicons name="image-outline" size={32} color={gray400} />
             <ThemedText
               type="xs"
-              weight="bold"
-              style={styles.categoryBadgeText}
+              style={{ color: gray500, marginTop: 4, textAlign: "center" }}
             >
-              {formatCategoryLabel(item.category)}
+              No Image
             </ThemedText>
           </View>
-          <TouchableOpacity
-            onPress={() => setShowOptionsModal(item)}
-            style={[
-              styles.gridActionBtn,
-              { backgroundColor: "rgba(0,0,0,0.3)" },
-            ]}
-          >
-            <Ionicons name="ellipsis-horizontal" size={18} color={white} />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.portfolioStats}>
-          <ThemedText
-            type="xs"
-            weight="bold"
-            style={styles.portfolioTitle}
-            numberOfLines={1}
-          >
-            {item.title}
-          </ThemedText>
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Ionicons name="heart" size={10} color={white} />
-              <ThemedText type="xs" style={styles.statText}>
-                {item.likes}
-              </ThemedText>
-            </View>
-            <View style={styles.statItem}>
-              <Ionicons name="chatbubble" size={10} color={white} />
-              <ThemedText type="xs" style={styles.statText}>
-                {item.comments}
-              </ThemedText>
-            </View>
-          </View>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: gray100 }]}>
       {/* Header */}
       <View
         style={[
           styles.header,
-          { paddingTop: Platform.OS === "ios" ? 10 : insets.top + 12 },
+          {
+            paddingTop: Platform.OS === "ios" ? 10 : insets.top + 12,
+            backgroundColor: gray100,
+            borderBottomColor: gray200,
+          },
         ]}
       >
         <View style={styles.headerTop}>
@@ -574,14 +656,9 @@ export default function PortfolioManagement({
               <ThemedText type="xl" weight="bold" style={styles.headerTitle}>
                 My Portfolio
               </ThemedText>
-              <ThemedText
-                type="xs"
-                style={[styles.headerSubtitle, { color: gray500 }]}
-              >
-                {uploadedCount} {uploadedLabel} uploaded
-              </ThemedText>
             </View>
             <TouchableOpacity
+              testID="add-photo-button"
               style={[
                 styles.uploadButton,
                 { backgroundColor: primary, shadowColor: primary },
@@ -598,10 +675,9 @@ export default function PortfolioManagement({
           style={[
             styles.statsRow,
             {
-              backgroundColor: white,
+              backgroundColor: gray100,
               marginHorizontal: 16,
               marginTop: 16,
-              borderRadius: 16,
               padding: 16,
             },
           ]}
@@ -733,22 +809,23 @@ export default function PortfolioManagement({
           />
         }
         ListEmptyComponent={
-          loading ? (
+          loading || refreshing ? (
             <View style={styles.emptyState}>
               <ActivityIndicator size="large" color={primary} />
             </View>
           ) : (
             <View style={styles.emptyState}>
+              <Ionicons name="images-outline" size={48} color={gray400} />
               <ThemedText
                 type="lg"
                 weight="bold"
-                style={[styles.emptyTitle, { color: gray900 }]}
+                style={[styles.emptyTitle, { color: gray900, marginTop: 12 }]}
               >
                 No photos yet
               </ThemedText>
               <ThemedText
                 type="sm"
-                style={[styles.emptySubtitle, { color: gray500 }]}
+                style={[styles.emptySubtitle, { color: gray500, marginTop: 8 }]}
               >
                 Upload your first portfolio image to showcase your work.
               </ThemedText>
@@ -801,6 +878,7 @@ export default function PortfolioManagement({
                   Title
                 </ThemedText>
                 <TextInput
+                  testID="photo-title-input"
                   style={[
                     styles.textInput,
                     {
@@ -843,6 +921,31 @@ export default function PortfolioManagement({
                 />
               </View>
 
+              {/* Location Input */}
+              <View style={styles.formField}>
+                <ThemedText
+                  type="sm"
+                  weight="bold"
+                  style={[styles.formLabel, { color: gray900 }]}
+                >
+                  Location
+                </ThemedText>
+                <TextInput
+                  style={[
+                    styles.textInput,
+                    {
+                      color: gray900,
+                      borderColor: gray200,
+                      backgroundColor: gray100,
+                    },
+                  ]}
+                  placeholder="e.g. Pokhara, Nepal"
+                  placeholderTextColor={gray400}
+                  value={location}
+                  onChangeText={setLocation}
+                />
+              </View>
+
               {/* Category Select */}
               <View style={styles.formField}>
                 <ThemedText
@@ -853,6 +956,7 @@ export default function PortfolioManagement({
                   Category
                 </ThemedText>
                 <TouchableOpacity
+                  testID="category-picker"
                   style={[
                     styles.pickerContainer,
                     { backgroundColor: gray100, borderColor: gray200 },
@@ -931,6 +1035,19 @@ export default function PortfolioManagement({
                       >
                         PNG, JPG up to 10MB each
                       </ThemedText>
+
+                      {/* Hidden button for E2E testing to simulate image Selection */}
+                      <TouchableOpacity
+                        testID="test-set-portfolio-image"
+                        style={{ height: 1, width: 1, opacity: 0 }}
+                        onPress={() => {
+                          setSelectedImage({
+                            uri: "https://placehold.co/600x400.png",
+                            name: "test_portfolio.png",
+                            type: "image/png",
+                          } as any);
+                        }}
+                      />
                     </View>
                   )}
                 </TouchableOpacity>
@@ -964,6 +1081,7 @@ export default function PortfolioManagement({
                 </ThemedText>
               </TouchableOpacity>
               <TouchableOpacity
+                testID="upload-submit-button"
                 style={[
                   styles.button,
                   styles.submitButton,
@@ -1105,7 +1223,17 @@ export default function PortfolioManagement({
                   <View style={styles.postHeader}>
                     <View style={styles.postHeaderLeft}>
                       <Image
-                        source={require("../../assets/images/abishek.png")}
+                        source={(() => {
+                          const profileUri = toAbsoluteImageUrl(
+                            userProfileImage,
+                            refreshTimestamp,
+                          );
+                          return profileUri
+                            ? { uri: profileUri }
+                            : {
+                                uri: `https://ui-avatars.com/api/?name=${userName || "User"}&background=f1f5f9&color=64748b`,
+                              };
+                        })()}
                         style={styles.postAvatar}
                       />
                       <View>
@@ -1119,6 +1247,25 @@ export default function PortfolioManagement({
                         <ThemedText type="xs" style={{ color: gray500 }}>
                           {formatCategoryLabel(item.category)}
                         </ThemedText>
+                        {item.location ? (
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              marginTop: 2,
+                              gap: 2,
+                            }}
+                          >
+                            <Ionicons
+                              name="location-outline"
+                              size={11}
+                              color={gray500}
+                            />
+                            <ThemedText type="xs" style={{ color: gray500 }}>
+                              {item.location}
+                            </ThemedText>
+                          </View>
+                        ) : null}
                       </View>
                     </View>
                     <View
@@ -1151,13 +1298,41 @@ export default function PortfolioManagement({
                   {/* Post Actions */}
                   <View style={styles.postActionsRow}>
                     <View style={styles.postActionsLeft}>
-                      <TouchableOpacity style={styles.postActionBtn}>
-                        <Ionicons
-                          name="heart-outline"
-                          size={26}
-                          color={gray900}
-                        />
+                      {/* Tappable heart + count (TikTok-style) */}
+                      <TouchableOpacity
+                        style={styles.postActionBtn}
+                        onPress={() => handleLike(item)}
+                      >
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <Ionicons
+                            name={
+                              likedImageIds.includes(item.id)
+                                ? "heart"
+                                : "heart-outline"
+                            }
+                            size={26}
+                            color={
+                              likedImageIds.includes(item.id)
+                                ? "#e11d48"
+                                : gray900
+                            }
+                          />
+                          <ThemedText
+                            type="sm"
+                            weight="bold"
+                            style={{ color: gray900 }}
+                          >
+                            {item.likes}
+                          </ThemedText>
+                        </View>
                       </TouchableOpacity>
+                      {/* Tappable comment icon + count */}
                       <TouchableOpacity
                         style={styles.postActionBtn}
                         onPress={() => {
@@ -1165,18 +1340,26 @@ export default function PortfolioManagement({
                           setShowCommentsModal(true);
                         }}
                       >
-                        <Ionicons
-                          name="chatbubble-outline"
-                          size={24}
-                          color={gray900}
-                        />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.postActionBtn}>
-                        <Ionicons
-                          name="paper-plane-outline"
-                          size={24}
-                          color={gray900}
-                        />
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <Ionicons
+                            name="chatbubble-outline"
+                            size={24}
+                            color={gray900}
+                          />
+                          <ThemedText
+                            type="sm"
+                            weight="bold"
+                            style={{ color: gray900 }}
+                          >
+                            {item.comments}
+                          </ThemedText>
+                        </View>
                       </TouchableOpacity>
                     </View>
                     <TouchableOpacity>
@@ -1190,13 +1373,43 @@ export default function PortfolioManagement({
 
                   {/* Post Info */}
                   <View style={styles.postInfoSection}>
-                    <ThemedText
-                      type="sm"
-                      weight="bold"
-                      style={{ color: gray900, marginBottom: 4 }}
+                    {/* Tappable likes & comments line */}
+                    <View
+                      style={{ flexDirection: "row", gap: 12, marginBottom: 6 }}
                     >
-                      {item.likes} likes • {item.comments} comments
-                    </ThemedText>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setSelectedPostForLikes(item);
+                          setShowLikesPanel(true);
+                        }}
+                      >
+                        <ThemedText
+                          type="sm"
+                          weight="bold"
+                          style={{ color: gray900 }}
+                        >
+                          {item.likes} {item.likes === 1 ? "like" : "likes"}
+                        </ThemedText>
+                      </TouchableOpacity>
+                      <ThemedText type="sm" style={{ color: gray500 }}>
+                        •
+                      </ThemedText>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setSelectedPostForComments(item);
+                          setShowCommentsModal(true);
+                        }}
+                      >
+                        <ThemedText
+                          type="sm"
+                          weight="bold"
+                          style={{ color: gray900 }}
+                        >
+                          {item.comments}{" "}
+                          {item.comments === 1 ? "comment" : "comments"}
+                        </ThemedText>
+                      </TouchableOpacity>
+                    </View>
 
                     <ThemedText
                       type="sm"
@@ -1224,7 +1437,7 @@ export default function PortfolioManagement({
                         marginBottom: 20,
                       }}
                     >
-                      JUST NOW
+                      {getRelativeTime(item.created_at).toUpperCase()}
                     </ThemedText>
                   </View>
                   <View
@@ -1388,6 +1601,30 @@ export default function PortfolioManagement({
                     weight="bold"
                     style={[styles.formLabel, { color: gray900 }]}
                   >
+                    Location
+                  </ThemedText>
+                  <TextInput
+                    style={[
+                      styles.textInput,
+                      {
+                        color: gray900,
+                        borderColor: gray200,
+                        backgroundColor: gray100,
+                      },
+                    ]}
+                    placeholder="e.g. Pokhara, Nepal"
+                    placeholderTextColor={gray400}
+                    value={editLocation}
+                    onChangeText={setEditLocation}
+                  />
+                </View>
+
+                <View style={styles.formField}>
+                  <ThemedText
+                    type="sm"
+                    weight="bold"
+                    style={[styles.formLabel, { color: gray900 }]}
+                  >
                     Description
                   </ThemedText>
                   <TextInput
@@ -1461,6 +1698,42 @@ export default function PortfolioManagement({
           </View>
         </View>
       </Modal>
+
+      {/* Reusable Comments Modal */}
+      {selectedPostForComments && (
+        <CommentsModal
+          visible={showCommentsModal}
+          onClose={() => setShowCommentsModal(false)}
+          post={selectedPostForComments}
+          onViewUserDetails={(user) => {
+            setViewDetailsUser(user);
+            setShowUserDetailsModal(true);
+          }}
+        />
+      )}
+
+      {/* Likes Panel – TikTok-style bottom sheet */}
+      {selectedPostForLikes && (
+        <LikesPanel
+          visible={showLikesPanel}
+          onClose={() => setShowLikesPanel(false)}
+          post={selectedPostForLikes}
+          onViewUserDetails={(user) => {
+            setViewDetailsUser(user);
+            setShowUserDetailsModal(true);
+          }}
+        />
+      )}
+
+      {/* User Details Modal */}
+      <UserDetailsModal
+        visible={showUserDetailsModal}
+        user={viewDetailsUser}
+        onClose={() => {
+          setShowUserDetailsModal(false);
+          setViewDetailsUser(null);
+        }}
+      />
     </View>
   );
 }
@@ -1470,10 +1743,12 @@ const CommentsModal = ({
   visible,
   onClose,
   post,
+  onViewUserDetails,
 }: {
   visible: boolean;
   onClose: () => void;
-  post: { image_id: number };
+  post: { id: number };
+  onViewUserDetails?: (user: any) => void;
 }) => {
   const [comments, setComments] = useState<APIComment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1509,7 +1784,7 @@ const CommentsModal = ({
   const fetchComments = async () => {
     try {
       setLoading(true);
-      const res = await apiService.getComments(post.image_id);
+      const res = await apiService.getComments(post.id);
       setComments(res.data || []);
     } catch (err) {
       console.error(err);
@@ -1527,7 +1802,7 @@ const CommentsModal = ({
       if (!token) return;
 
       await apiService.addComment(
-        post.image_id,
+        post.id,
         newComment,
         token,
         replyTo?.comment_id,
@@ -1547,7 +1822,7 @@ const CommentsModal = ({
     try {
       const token = await storage.getToken();
       if (!token) return;
-      await apiService.deleteComment(post.image_id, id, token);
+      await apiService.deleteComment(post.id, id, token);
       fetchComments();
     } catch (err) {
       console.error(err);
@@ -1585,12 +1860,20 @@ const CommentsModal = ({
               renderItem={({ item }) => (
                 <View style={styles.commentItemContainer}>
                   <View style={styles.commentMain}>
+                    {/* Avatar */}
                     <View style={styles.commentAvatarContainer}>
-                      <Ionicons
-                        name="person-circle"
-                        size={32}
-                        color={gray400}
-                      />
+                      {item.user?.profile_image ? (
+                        <Image
+                          source={{ uri: item.user.profile_image }}
+                          style={{ width: 36, height: 36, borderRadius: 18 }}
+                        />
+                      ) : (
+                        <Ionicons
+                          name="person-circle"
+                          size={36}
+                          color={gray400}
+                        />
+                      )}
                     </View>
                     <View style={styles.commentContent}>
                       <View
@@ -1607,6 +1890,22 @@ const CommentsModal = ({
                         >
                           {item.user?.full_name}
                         </ThemedText>
+                        {/* View Details button (instead of Follow) */}
+                        {currentUser?.user_id !== item.user_id &&
+                          onViewUserDetails && (
+                            <TouchableOpacity
+                              onPress={() => onViewUserDetails(item.user)}
+                              style={styles.viewDetailsBtn}
+                            >
+                              <ThemedText
+                                type="xs"
+                                weight="bold"
+                                style={{ color: primary }}
+                              >
+                                View Details
+                              </ThemedText>
+                            </TouchableOpacity>
+                          )}
                         {currentUser?.user_id === item.user_id && (
                           <TouchableOpacity
                             onPress={() => handleDeleteComment(item.comment_id)}
@@ -1625,18 +1924,32 @@ const CommentsModal = ({
                       >
                         {item.comment_text}
                       </ThemedText>
-                      <TouchableOpacity
-                        onPress={() => setReplyTo(item)}
-                        style={{ marginTop: 4 }}
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 12,
+                          marginTop: 4,
+                        }}
                       >
-                        <ThemedText
-                          type="xs"
-                          weight="bold"
-                          style={{ color: gray500 }}
-                        >
-                          Reply
+                        <ThemedText type="xs" style={{ color: gray500 }}>
+                          {item.created_at
+                            ? new Date(item.created_at).toLocaleDateString(
+                                undefined,
+                                { month: "short", day: "numeric" },
+                              )
+                            : ""}
                         </ThemedText>
-                      </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setReplyTo(item)}>
+                          <ThemedText
+                            type="xs"
+                            weight="bold"
+                            style={{ color: gray500 }}
+                          >
+                            Reply
+                          </ThemedText>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </View>
 
@@ -1753,6 +2066,552 @@ const CommentsModal = ({
   );
 };
 
+type LikeUser = {
+  user_id: string;
+  full_name: string;
+  profile_image: string | null;
+  email?: string;
+  bio?: string;
+  role?: string;
+};
+
+const LikesPanel = ({
+  visible,
+  onClose,
+  post,
+  onViewUserDetails,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  post: { id: number; likes: number };
+  onViewUserDetails: (user: LikeUser) => void;
+}) => {
+  const [likers, setLikers] = useState<LikeUser[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const {
+    gray900,
+    gray100,
+    gray400,
+    gray500,
+    gray200,
+    background,
+    primary,
+    white,
+  } = useAppTheme();
+
+  useEffect(() => {
+    if (visible && post) {
+      fetchLikers();
+    }
+  }, [visible, post]);
+
+  const fetchLikers = async () => {
+    try {
+      setLoading(true);
+      const token = await storage.getToken();
+      if (!token) return;
+      const res = await apiService.getImageLikes(post.id, token);
+      setLikers(res.data || []);
+    } catch (err: any) {
+      // Any error (including JSON parse, 404, network) → show empty silently
+      console.warn("[LikesPanel] Could not load likes:", err?.message);
+      setLikers([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent>
+      <View style={styles.modalOverlay}>
+        <View
+          style={[styles.likesPanelContent, { backgroundColor: background }]}
+        >
+          {/* Handle bar */}
+          <View style={styles.likesPanelHandle} />
+
+          {/* Header */}
+          <View style={styles.likesPanelHeader}>
+            <ThemedText type="lg" weight="bold" style={{ color: gray900 }}>
+              Likes
+            </ThemedText>
+            <View
+              style={[styles.likesBadge, { backgroundColor: primary + "18" }]}
+            >
+              <ThemedText type="sm" weight="bold" style={{ color: primary }}>
+                {post.likes}
+              </ThemedText>
+            </View>
+            <TouchableOpacity
+              onPress={onClose}
+              style={{ marginLeft: "auto" as any, padding: 4 }}
+            >
+              <Ionicons name="close" size={24} color={gray500} />
+            </TouchableOpacity>
+          </View>
+
+          {loading ? (
+            <View
+              style={{
+                flex: 1,
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              <ActivityIndicator size="large" color={primary} />
+            </View>
+          ) : likers.length === 0 ? (
+            <View
+              style={{
+                flex: 1,
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              <Ionicons name="heart-outline" size={48} color={gray400} />
+              <ThemedText type="sm" style={{ color: gray500, marginTop: 12 }}>
+                No likes yet
+              </ThemedText>
+            </View>
+          ) : (
+            <FlatList
+              data={likers}
+              keyExtractor={(u) => u.user_id}
+              contentContainerStyle={{
+                paddingHorizontal: 16,
+                paddingBottom: 24,
+              }}
+              ItemSeparatorComponent={() => (
+                <View style={{ height: 1, backgroundColor: gray100 }} />
+              )}
+              renderItem={({ item }) => (
+                <View style={styles.likerRow}>
+                  {/* Avatar */}
+                  <View style={styles.likerAvatarWrap}>
+                    {item.profile_image ? (
+                      <Image
+                        source={{ uri: item.profile_image }}
+                        style={styles.likerAvatar}
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.likerAvatarFallback,
+                          { backgroundColor: gray100 },
+                        ]}
+                      >
+                        <ThemedText
+                          type="sm"
+                          weight="bold"
+                          style={{ color: primary }}
+                        >
+                          {item.full_name?.charAt(0)?.toUpperCase() || "?"}
+                        </ThemedText>
+                      </View>
+                    )}
+                    {/* Red heart badge */}
+                    <View style={styles.likerHeartBadge}>
+                      <Ionicons name="heart" size={10} color={white} />
+                    </View>
+                  </View>
+
+                  {/* Name + role */}
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <ThemedText
+                      type="sm"
+                      weight="bold"
+                      style={{ color: gray900 }}
+                    >
+                      {item.full_name}
+                    </ThemedText>
+                    {item.role && (
+                      <ThemedText
+                        type="xs"
+                        style={{
+                          color: gray500,
+                          textTransform: "capitalize",
+                          marginTop: 1,
+                        }}
+                      >
+                        {item.role.charAt(0) + item.role.slice(1).toLowerCase()}
+                      </ThemedText>
+                    )}
+                  </View>
+
+                  {/* View Details button */}
+                  <TouchableOpacity
+                    style={[
+                      styles.viewDetailsBtnLarge,
+                      {
+                        backgroundColor: primary + "12",
+                        borderColor: primary + "30",
+                      },
+                    ]}
+                    onPress={() => onViewUserDetails(item)}
+                  >
+                    <ThemedText
+                      type="xs"
+                      weight="bold"
+                      style={{ color: primary }}
+                    >
+                      View Details
+                    </ThemedText>
+                  </TouchableOpacity>
+                </View>
+              )}
+            />
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// ─── User Details Modal ────────────────────────────────────────────────────
+const UserDetailsModal = ({
+  visible,
+  user,
+  onClose,
+}: {
+  visible: boolean;
+  user: any | null;
+  onClose: () => void;
+}) => {
+  const [fullUser, setFullUser] = useState<any | null>(null);
+  const [loadingUser, setLoadingUser] = useState(false);
+
+  const {
+    gray900,
+    gray100,
+    gray400,
+    gray500,
+    gray200,
+    gray600,
+    background,
+    primary,
+    white,
+    success,
+  } = useAppTheme();
+
+  useEffect(() => {
+    if (visible && user?.user_id) {
+      fetchFullUser(user.user_id);
+    } else if (visible && user) {
+      setFullUser(user);
+    }
+  }, [visible, user]);
+
+  const fetchFullUser = async (userId: string) => {
+    try {
+      setLoadingUser(true);
+      const token = await storage.getToken();
+      if (!token) {
+        setFullUser(user);
+        return;
+      }
+      const res = await apiService.getUserById(userId, token);
+      setFullUser(res.data || user);
+    } catch {
+      setFullUser(user);
+    } finally {
+      setLoadingUser(false);
+    }
+  };
+
+  const displayUser = fullUser || user;
+
+  const roleBadgeColor = (role?: string) => {
+    if (!role) return gray400;
+    if (role === "PHOTOGRAPHER") return primary;
+    if (role === "CLIENT") return "#16a34a";
+    return gray500;
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent>
+      <View style={styles.modalOverlay}>
+        <View
+          style={[styles.userDetailsContent, { backgroundColor: background }]}
+        >
+          {/* Handle */}
+          <View style={styles.likesPanelHandle} />
+
+          {/* Close button */}
+          <TouchableOpacity onPress={onClose} style={styles.userDetailsClose}>
+            <Ionicons name="close" size={22} color={gray500} />
+          </TouchableOpacity>
+
+          {loadingUser ? (
+            <View
+              style={{
+                flex: 1,
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              <ActivityIndicator size="large" color={primary} />
+            </View>
+          ) : !displayUser ? null : (
+            <ScrollView
+              contentContainerStyle={styles.userDetailsBody}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Avatar section */}
+              <View style={styles.userDetailsAvatarWrap}>
+                {displayUser.profile_image ? (
+                  <Image
+                    source={{ uri: displayUser.profile_image }}
+                    style={styles.userDetailsAvatar}
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.userDetailsAvatarFallback,
+                      { backgroundColor: primary + "20" },
+                    ]}
+                  >
+                    <ThemedText
+                      style={{
+                        fontSize: 40,
+                        fontWeight: "800",
+                        color: primary,
+                      }}
+                    >
+                      {displayUser.full_name?.charAt(0)?.toUpperCase() || "?"}
+                    </ThemedText>
+                  </View>
+                )}
+              </View>
+
+              {/* Name */}
+              <ThemedText
+                type="2xl"
+                weight="extrabold"
+                style={{ color: gray900, textAlign: "center", marginTop: 12 }}
+              >
+                {displayUser.full_name}
+              </ThemedText>
+
+              {/* Role badge */}
+              {displayUser.role && (
+                <View
+                  style={[
+                    styles.roleBadge,
+                    {
+                      backgroundColor: roleBadgeColor(displayUser.role) + "18",
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.roleDot,
+                      { backgroundColor: roleBadgeColor(displayUser.role) },
+                    ]}
+                  />
+                  <ThemedText
+                    type="xs"
+                    weight="bold"
+                    style={{
+                      color: roleBadgeColor(displayUser.role),
+                      textTransform: "capitalize",
+                    }}
+                  >
+                    {displayUser.role.charAt(0) +
+                      displayUser.role.slice(1).toLowerCase()}
+                  </ThemedText>
+                </View>
+              )}
+
+              {/* Details cards */}
+              <View
+                style={[styles.userDetailsCard, { backgroundColor: gray100 }]}
+              >
+                {displayUser.email && (
+                  <View style={styles.userDetailsRow}>
+                    <Ionicons name="mail-outline" size={18} color={primary} />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <ThemedText type="xs" style={{ color: gray500 }}>
+                        Email
+                      </ThemedText>
+                      <ThemedText
+                        type="sm"
+                        weight="semibold"
+                        style={{ color: gray900, marginTop: 2 }}
+                      >
+                        {displayUser.email}
+                      </ThemedText>
+                    </View>
+                  </View>
+                )}
+
+                {displayUser.phone && (
+                  <>
+                    <View
+                      style={[
+                        styles.userDetailsRowDivider,
+                        { backgroundColor: gray200 },
+                      ]}
+                    />
+                    <View style={styles.userDetailsRow}>
+                      <Ionicons name="call-outline" size={18} color={primary} />
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <ThemedText type="xs" style={{ color: gray500 }}>
+                          Phone
+                        </ThemedText>
+                        <ThemedText
+                          type="sm"
+                          weight="semibold"
+                          style={{ color: gray900, marginTop: 2 }}
+                        >
+                          {displayUser.phone}
+                        </ThemedText>
+                      </View>
+                    </View>
+                  </>
+                )}
+
+                {displayUser.location && (
+                  <>
+                    <View
+                      style={[
+                        styles.userDetailsRowDivider,
+                        { backgroundColor: gray200 },
+                      ]}
+                    />
+                    <View style={styles.userDetailsRow}>
+                      <Ionicons
+                        name="location-outline"
+                        size={18}
+                        color={primary}
+                      />
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <ThemedText type="xs" style={{ color: gray500 }}>
+                          Location
+                        </ThemedText>
+                        <ThemedText
+                          type="sm"
+                          weight="semibold"
+                          style={{ color: gray900, marginTop: 2 }}
+                        >
+                          {displayUser.location}
+                        </ThemedText>
+                      </View>
+                    </View>
+                  </>
+                )}
+
+                {displayUser.specialization && (
+                  <>
+                    <View
+                      style={[
+                        styles.userDetailsRowDivider,
+                        { backgroundColor: gray200 },
+                      ]}
+                    />
+                    <View style={styles.userDetailsRow}>
+                      <Ionicons
+                        name="camera-outline"
+                        size={18}
+                        color={primary}
+                      />
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <ThemedText type="xs" style={{ color: gray500 }}>
+                          Specialization
+                        </ThemedText>
+                        <ThemedText
+                          type="sm"
+                          weight="semibold"
+                          style={{ color: gray900, marginTop: 2 }}
+                        >
+                          {displayUser.specialization}
+                        </ThemedText>
+                      </View>
+                    </View>
+                  </>
+                )}
+
+                {displayUser.kyc_verified !== undefined && (
+                  <>
+                    <View
+                      style={[
+                        styles.userDetailsRowDivider,
+                        { backgroundColor: gray200 },
+                      ]}
+                    />
+                    <View style={styles.userDetailsRow}>
+                      <Ionicons
+                        name={
+                          displayUser.kyc_verified
+                            ? "checkmark-circle"
+                            : "time-outline"
+                        }
+                        size={18}
+                        color={displayUser.kyc_verified ? success : gray500}
+                      />
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <ThemedText type="xs" style={{ color: gray500 }}>
+                          KYC Status
+                        </ThemedText>
+                        <ThemedText
+                          type="sm"
+                          weight="semibold"
+                          style={{
+                            color: displayUser.kyc_verified ? success : gray600,
+                            marginTop: 2,
+                          }}
+                        >
+                          {displayUser.kyc_verified
+                            ? "Verified"
+                            : "Not Verified"}
+                        </ThemedText>
+                      </View>
+                    </View>
+                  </>
+                )}
+              </View>
+
+              {/* Bio */}
+              {displayUser.bio && (
+                <View
+                  style={[styles.userBioCard, { backgroundColor: gray100 }]}
+                >
+                  <ThemedText
+                    type="xs"
+                    weight="bold"
+                    style={{ color: gray500, marginBottom: 6 }}
+                  >
+                    BIO
+                  </ThemedText>
+                  <ThemedText
+                    type="sm"
+                    style={{ color: gray900, lineHeight: 20 }}
+                  >
+                    {displayUser.bio}
+                  </ThemedText>
+                </View>
+              )}
+
+              {/* Close button */}
+              <TouchableOpacity
+                style={[
+                  styles.userDetailsCloseBtn,
+                  { backgroundColor: gray100 },
+                ]}
+                onPress={onClose}
+              >
+                <ThemedText type="sm" weight="bold" style={{ color: gray600 }}>
+                  Close
+                </ThemedText>
+              </TouchableOpacity>
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1842,6 +2701,7 @@ const styles = StyleSheet.create({
   },
   gridContainer: {
     padding: 2,
+    flexGrow: 1,
   },
   gridRow: {
     paddingHorizontal: 1,
@@ -2240,5 +3100,175 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+
+  // ─── View Details button (in comment row) ───
+  viewDetailsBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+
+  // ─── Likes Panel ───────────────────────────
+  likesPanelContent: {
+    height: "70%",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingBottom: 24,
+    marginTop: "auto" as any,
+    overflow: "hidden",
+  },
+  likesPanelHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#e2e8f0",
+    alignSelf: "center",
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  likesPanelHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    gap: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#f1f5f9",
+  },
+  likesBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 20,
+  },
+  likerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  likerAvatarWrap: {
+    position: "relative",
+    width: 46,
+    height: 46,
+  },
+  likerAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+  },
+  likerAvatarFallback: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  likerHeartBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#e11d48",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "white",
+  },
+  viewDetailsBtnLarge: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+
+  // ─── User Details Modal ────────────────────
+  userDetailsContent: {
+    height: "85%",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    marginTop: "auto" as any,
+    overflow: "hidden",
+  },
+  userDetailsClose: {
+    position: "absolute",
+    top: 18,
+    right: 18,
+    zIndex: 10,
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.06)",
+  },
+  userDetailsBody: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    paddingTop: 8,
+    alignItems: "center",
+  },
+  userDetailsAvatarWrap: {
+    marginTop: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  userDetailsAvatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+  },
+  userDetailsAvatarFallback: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  roleBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 20,
+    marginTop: 8,
+  },
+  roleDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  userDetailsCard: {
+    width: "100%",
+    borderRadius: 16,
+    marginTop: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  userDetailsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+  },
+  userDetailsRowDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 30,
+  },
+  userBioCard: {
+    width: "100%",
+    borderRadius: 16,
+    marginTop: 12,
+    padding: 16,
+  },
+  userDetailsCloseBtn: {
+    marginTop: 24,
+    width: "100%",
+    borderRadius: 16,
+    padding: 16,
+    alignItems: "center",
   },
 });

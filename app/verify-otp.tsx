@@ -11,18 +11,19 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
   View
 } from "react-native";
+import { ThemedText } from "../components/themed-text";
 import { apiService } from "../services/api";
 
 const { width } = Dimensions.get("window");
 const BOX_SIZE = (width - 100) / 6;
 
 export default function VerifyOTP() {
+  const Text = ThemedText;
   const router = useRouter();
   const params = useLocalSearchParams();
   const email = params.email as string;
@@ -51,16 +52,18 @@ export default function VerifyOTP() {
     if (otpCode.length !== 6) return Alert.alert("Wait", "Enter the 6-digit code");
     setLoading(true);
     try {
-      // If password reset flow, navigate to reset-password screen
+      // If password reset flow, verify first then navigate to reset-password screen
       if (flow === 'reset-password') {
-        // Just verify OTP code format and navigate
-        router.push({
-          pathname: "/reset-password",
-          params: {
-            email: email,
-            otp_code: otpCode,
-          },
-        });
+        const res = await apiService.verifyPasswordResetOTP({ email, otp_code: otpCode });
+        if (res.success) {
+          router.push({
+            pathname: "/reset-password",
+            params: {
+              email: email,
+              otp_code: otpCode,
+            },
+          });
+        }
         setLoading(false);
         return;
       }
@@ -70,10 +73,10 @@ export default function VerifyOTP() {
       if (res.success) {
         // Redirect based on user role (from params or response)
         const userRole = role || res.data?.role;
-        if (userRole === "CLIENT") {
-          router.replace("/Client/ClientDashboard");
-        } else if (userRole === "PHOTOGRAPHER") {
-          router.replace("/Photographer/KYCVerification");
+        if (userRole === "CLIENT" || userRole === "PHOTOGRAPHER") {
+          Alert.alert("Success", "Registration completed! Please login.", [
+            { text: "OK", onPress: () => router.replace("/login") }
+          ]);
         } else {
           router.replace("/login");
         }

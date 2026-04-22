@@ -1,4 +1,4 @@
-import { Camera, Shield, TrendingUp, Users, Award, Zap, Mail, Phone, MapPin, MessageCircle, Facebook, Instagram, Twitter } from 'lucide-react';
+import { Camera, Shield, TrendingUp, Users, Award, Zap, Mail, Phone, MapPin, MessageCircle} from 'lucide-react';
 
 interface AboutPageProps {
   onNavigate: (page: string) => void;

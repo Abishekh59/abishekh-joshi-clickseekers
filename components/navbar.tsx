@@ -1,6 +1,7 @@
 import { usePathname, useRouter } from "expo-router";
 import React from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, TouchableOpacity, View } from "react-native";
+import { ThemedText } from "./themed-text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "react-native-vector-icons/Ionicons";
 
@@ -54,9 +55,9 @@ export default function Navbar() {
               size={24}
               color={active ? "#6BA6FF" : "#fff"}
             />
-            <Text style={[styles.navLabel, active && styles.navLabelActive]}>
+            <ThemedText style={[styles.navLabel, active && styles.navLabelActive]}>
               {item.label}
-            </Text>
+            </ThemedText>
           </TouchableOpacity>
         );
       })}

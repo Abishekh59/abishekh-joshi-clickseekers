@@ -1,21 +1,24 @@
 import { ThemedText } from "@/components/themed-text";
 import { useThemeColor } from "@/hooks/use-theme-color";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  Dimensions,
-  FlatList,
-  Image,
-  Modal,
-  Platform,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    Dimensions,
+    FlatList,
+    Image,
+    Modal,
+    Platform,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
+// notifications will be dynamically required below to avoid Expo Go SDK warnings
+import Constants, { ExecutionEnvironment } from "expo-constants";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ClientBottomNav from "../../components/ClientBottomNav";
 import LogoLoader from "../../components/LogoLoader";
@@ -40,20 +43,50 @@ const getRelativeTime = (dateString: string) => {
   return `${diffInDays}d ago`;
 };
 
-const toAbsoluteImageUrl = (img_url?: string | null, image_id?: number) => {
-  if (img_url && img_url.trim() !== "") {
-    if (img_url.startsWith("http://") || img_url.startsWith("https://"))
-      return img_url;
-    const path = img_url.startsWith("/") ? img_url : `/${img_url}`;
-    return `${API_HOST}${path}`;
+const toAbsoluteImageUrl = (
+  urlOrObj?: string | any | null,
+  image_id?: number,
+  timestamp?: number,
+) => {
+  if (!urlOrObj && !image_id) return null;
+  const cacheBust = timestamp ? `?t=${timestamp}` : "";
+
+  let url = "";
+  if (typeof urlOrObj === "string") {
+    url = urlOrObj;
+  } else if (urlOrObj && typeof urlOrObj === "object") {
+    url =
+      urlOrObj.image_url ||
+      urlOrObj.url ||
+      urlOrObj.uri ||
+      urlOrObj.profile_image ||
+      urlOrObj.avatar ||
+      "";
   }
+
+  if (url && url.trim() !== "") {
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      return url.includes("?")
+        ? `${url}&t=${timestamp || Date.now()}`
+        : `${url}${cacheBust}`;
+    }
+    const path = url.startsWith("/") ? url : `/${url}`;
+    return `${API_HOST}${path}${cacheBust}`;
+  }
+
   if (image_id) {
-    return `${API_HOST}/api/photographer/portfolio/image/${image_id}`;
+    return `${API_HOST}/api/photographer/portfolio/image/${image_id}${cacheBust}`;
   }
   return null;
 };
 
-const StoriesBar = ({ photographers }: { photographers: any[] }) => {
+const StoriesBar = ({
+  photographers,
+  timestamp,
+}: {
+  photographers: any[];
+  timestamp?: number;
+}) => {
   const router = useRouter();
   const gray900 = useThemeColor({}, "gray900");
   const infoColor = useThemeColor({}, "info");
@@ -78,11 +111,11 @@ const StoriesBar = ({ photographers }: { photographers: any[] }) => {
         contentContainerStyle={styles.storiesScroll}
       >
         {photographers.map((p) => {
-          const profileUri = p.profile_image
-            ? p.profile_image.startsWith("http")
-              ? p.profile_image
-              : `${API_HOST}${p.profile_image.startsWith("/") ? "" : "/"}${p.profile_image}`
-            : null;
+          const profileUri = toAbsoluteImageUrl(
+            p.profile_image || p.avatar,
+            undefined,
+            timestamp,
+          );
           return (
             <TouchableOpacity
               key={p.user_id}
@@ -95,24 +128,14 @@ const StoriesBar = ({ photographers }: { photographers: any[] }) => {
               }
             >
               <View style={styles.storyRing}>
-                {profileUri ? (
-                  <Image
-                    source={{ uri: profileUri }}
-                    style={styles.storyAvatar}
-                  />
-                ) : (
-                  <View
-                    style={[styles.storyAvatar, styles.storyAvatarPlaceholder]}
-                  >
-                    <ThemedText
-                      type="xl"
-                      weight="bold"
-                      style={{ color: "#fff" }}
-                    >
-                      {p.full_name?.charAt(0) || "P"}
-                    </ThemedText>
-                  </View>
-                )}
+                <Image
+                  source={{
+                    uri:
+                      profileUri ||
+                      `https://ui-avatars.com/api/?name=${encodeURIComponent(p.full_name || "Photographer")}&background=random`,
+                  }}
+                  style={styles.storyAvatar}
+                />
               </View>
               <ThemedText
                 type="xs"
@@ -131,12 +154,18 @@ const StoriesBar = ({ photographers }: { photographers: any[] }) => {
 
 const InstagramPost = ({
   item,
+  initialLikedState,
+  initialSavedState,
   onLike,
   onCommentPress,
+  timestamp,
 }: {
   item: any;
+  initialLikedState?: boolean;
+  initialSavedState?: boolean;
   onLike: (id: number) => void;
   onCommentPress: (post: any) => void;
+  timestamp?: number;
 }) => {
   const router = useRouter();
   const [commentText, setCommentText] = useState("");
@@ -144,15 +173,16 @@ const InstagramPost = ({
 
   const photographer = item.portfolio?.user;
   const categoryName = item.portfolio?.category?.category_name || "Photography";
-  const imageUrl = toAbsoluteImageUrl(item.image_url, item.image_id);
-  const profileImage = photographer?.profile_image
-    ? photographer.profile_image.startsWith("http")
-      ? photographer.profile_image
-      : `${API_HOST}${photographer.profile_image.startsWith("/") ? "" : "/"}${photographer.profile_image}`
-    : null;
+  const imageUrl = toAbsoluteImageUrl(item.image_url, item.image_id, timestamp);
+  const profileImage = toAbsoluteImageUrl(
+    photographer?.profile_image,
+    undefined,
+    timestamp,
+  );
 
-  const [isLiked, setIsLiked] = useState(false);
+  const [isLiked, setIsLiked] = useState(initialLikedState || false);
   const [likes, setLikes] = useState<number>(item.likes_count || 0);
+  const [isSaved, setIsSaved] = useState(initialSavedState || false);
 
   const gray900 = useThemeColor({}, "gray900");
   const gray600 = useThemeColor({}, "gray600");
@@ -160,14 +190,50 @@ const InstagramPost = ({
   const gray400 = useThemeColor({}, "gray400");
   const infoColor = useThemeColor({}, "info");
 
-  const handleLike = async () => {
-    if (isLiked) return;
-    setIsLiked(true);
-    setLikes((prev) => prev + 1);
+  const handleSave = async () => {
     try {
-      await apiService.likePortfolioImage(item.image_id);
+      const token = await storage.getToken();
+      if (!token) return;
+
+      const newSavedState = !isSaved;
+      setIsSaved(newSavedState);
+
+      const result = await apiService.toggleImageSave(item.image_id, token);
+      if (result.success) {
+        setIsSaved(!!result.data?.isSaved);
+        Alert.alert(
+          "Success",
+          result.data?.isSaved ? "Saved to post" : "Removed successfully",
+        );
+      }
+    } catch (e) {
+      console.error("Failed to save:", e);
+      setIsSaved(!isSaved);
+    }
+  };
+
+  const handleLike = async () => {
+    try {
+      const token = await storage.getToken();
+      if (!token) return;
+
+      // Toggle like state immediately for UI responsiveness
+      const newLikedState = !isLiked;
+      setIsLiked(newLikedState);
+      setLikes((prev) => (newLikedState ? prev + 1 : prev - 1));
+
+      const result = await apiService.likePortfolioImage(item.image_id, token);
+
+      // Update with actual values from backend
+      if (result.data) {
+        setIsLiked(result.data.isLiked);
+        setLikes(result.data.likes_count);
+      }
     } catch (e) {
       console.error("Failed to like:", e);
+      // Revert on error
+      setIsLiked(!isLiked);
+      setLikes((prev) => (isLiked ? prev + 1 : prev - 1));
     }
   };
 
@@ -186,11 +252,12 @@ const InstagramPost = ({
           {profileImage ? (
             <Image source={{ uri: profileImage }} style={styles.postAvatar} />
           ) : (
-            <View style={[styles.postAvatar, styles.postAvatarPlaceholder]}>
-              <ThemedText type="base" weight="bold" style={{ color: "#fff" }}>
-                {photographer?.full_name?.charAt(0) || "P"}
-              </ThemedText>
-            </View>
+            <Image
+              source={{
+                uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(photographer?.full_name || "Photographer")}&background=random`,
+              }}
+              style={styles.postAvatar}
+            />
           )}
           <View>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -207,9 +274,21 @@ const InstagramPost = ({
                 </ThemedText>
               </View>
             </View>
-            <ThemedText type="xs" style={{ color: gray600, marginTop: 1 }}>
-              Kathmandu, Nepal
-            </ThemedText>
+            {item.location ? (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  marginTop: 1,
+                  gap: 2,
+                }}
+              >
+                <Ionicons name="location-outline" size={11} color={gray600} />
+                <ThemedText type="xs" style={{ color: gray600 }}>
+                  {item.location}
+                </ThemedText>
+              </View>
+            ) : null}
           </View>
         </TouchableOpacity>
         <TouchableOpacity>
@@ -258,8 +337,12 @@ const InstagramPost = ({
             <Ionicons name="paper-plane-outline" size={24} color={gray900} />
           </TouchableOpacity>
         </View>
-        <TouchableOpacity>
-          <Ionicons name="bookmark-outline" size={24} color={gray900} />
+        <TouchableOpacity onPress={handleSave}>
+          <Ionicons
+            name={isSaved ? "bookmark" : "bookmark-outline"}
+            size={24}
+            color={gray900}
+          />
         </TouchableOpacity>
       </View>
 
@@ -336,29 +419,36 @@ const InstagramPost = ({
   );
 };
 
+// Configure notifications logic will be handled inside useEffect to avoid Expo Go warnings
+const isExpoGo =
+  Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+  Constants.appOwnership === "expo";
+
 const CommentItem = ({
   comment,
   onReply,
   onDelete,
   onEdit,
   currentUserId,
+  timestamp,
 }: {
   comment: Comment;
   onReply: (c: Comment) => void;
   onDelete: (id: number) => void;
   onEdit: (c: Comment) => void;
   currentUserId?: string;
+  timestamp?: number;
 }) => {
   const gray900 = useThemeColor({}, "gray900");
   const gray600 = useThemeColor({}, "gray600");
   const gray500 = useThemeColor({}, "gray500");
   const isOwner = currentUserId === comment.user_id;
 
-  const profileUri = comment.user?.profile_image
-    ? comment.user.profile_image.startsWith("http")
-      ? comment.user.profile_image
-      : `${API_HOST}${comment.user.profile_image.startsWith("/") ? "" : "/"}${comment.user.profile_image}`
-    : null;
+  const profileUri = toAbsoluteImageUrl(
+    comment.user?.profile_image,
+    undefined,
+    timestamp,
+  );
 
   return (
     <View style={styles.commentItemContainer}>
@@ -366,11 +456,12 @@ const CommentItem = ({
         {profileUri ? (
           <Image source={{ uri: profileUri }} style={styles.commentAvatar} />
         ) : (
-          <View style={[styles.commentAvatar, styles.commentAvatarPlaceholder]}>
-            <ThemedText type="xs" weight="bold" style={{ color: "#fff" }}>
-              {comment.user?.full_name?.charAt(0) || "U"}
-            </ThemedText>
-          </View>
+          <Image
+            source={{
+              uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(comment.user?.full_name || "User")}&background=random`,
+            }}
+            style={styles.commentAvatar}
+          />
         )}
         <View style={styles.commentContent}>
           <View
@@ -482,10 +573,12 @@ const CommentsModal = ({
   visible,
   onClose,
   post,
+  timestamp,
 }: {
   visible: boolean;
   onClose: () => void;
   post: any;
+  timestamp?: number;
 }) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -600,14 +693,19 @@ const CommentsModal = ({
               keyExtractor={(item) => item.comment_id.toString()}
               renderItem={({ item }) => (
                 <CommentItem
+                  key={item.comment_id}
                   comment={item}
-                  onReply={setReplyTo}
+                  currentUserId={currentUser?.user_id}
+                  timestamp={timestamp}
+                  onReply={(c) => {
+                    setReplyTo(c);
+                    setNewComment(`@${c.user?.full_name} `);
+                  }}
                   onDelete={handleDeleteComment}
                   onEdit={(c) => {
                     setEditingComment(c);
                     setNewComment(c.comment_text);
                   }}
-                  currentUserId={currentUser?.user_id}
                 />
               )}
               contentContainerStyle={{ padding: 16 }}
@@ -684,6 +782,7 @@ const CommentsModal = ({
 };
 
 export default function ClientDashboard() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [feed, setFeed] = useState<any[]>([]);
   const [topPhotographers, setTopPhotographers] = useState<any[]>([]);
@@ -692,6 +791,12 @@ export default function ClientDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [selectedPost, setSelectedPost] = useState<any | null>(null);
   const [showComments, setShowComments] = useState(false);
+  const [likedImageIds, setLikedImageIds] = useState<number[]>([]);
+  const [savedImageIds, setSavedImageIds] = useState<number[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [refreshTimestamp, setRefreshTimestamp] = useState<number>(Date.now());
 
   const gray900 = useThemeColor({}, "gray900");
   const gray600 = useThemeColor({}, "gray600");
@@ -699,14 +804,52 @@ export default function ClientDashboard() {
   const background = useThemeColor({}, "background");
   const errorColor = useThemeColor({}, "error");
 
+  const handleLogout = async () => {
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await storage.clearAuth();
+            router.replace("/");
+          } catch (e) {
+            Alert.alert("Error", "Failed to logout. Please try again.");
+          }
+        },
+      },
+    ]);
+  };
+
   const fetchData = async () => {
     try {
-      const [feedRes, topRes] = await Promise.all([
-        apiService.getDashboardFeed(),
-        apiService.getTopPhotographers(),
-      ]);
+      const token = await storage.getToken();
+      if (!token) return;
+
+      const [feedRes, topRes, likesRes, savesRes, notifRes] = await Promise.all(
+        [
+          apiService.getDashboardFeed(),
+          apiService.getTopPhotographers(),
+          apiService.getUserLikes(token),
+          apiService.getUserSaves(token),
+          apiService.getNotifications(token),
+        ],
+      );
       setFeed(feedRes.data || []);
       setTopPhotographers(topRes.data || []);
+      setLikedImageIds(likesRes.data?.likedImageIds || []);
+      setSavedImageIds(savesRes.data?.savedImageIds || []);
+      setRefreshTimestamp(Date.now());
+
+      if (notifRes.success) {
+        setNotifications(notifRes.data || []);
+        const unread = (notifRes.data || []).filter(
+          (n: any) => !n.is_read,
+        ).length;
+        setUnreadCount(unread);
+      }
+
       setError(null);
     } catch (e) {
       console.error(e);
@@ -717,13 +860,139 @@ export default function ClientDashboard() {
     }
   };
 
+  // Auto-refresh when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+    }, []),
+  );
+
   useEffect(() => {
+    const setupNotifications = async () => {
+      const isExpoGo =
+        Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+        Constants.appOwnership === "expo";
+      if (isExpoGo) {
+        console.log("Push notifications are not supported in Expo Go.");
+        return;
+      }
+
+      // Set notification handler only for non-Expo Go environments
+      const Notifications = require("expo-notifications");
+      Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: true,
+          shouldShowBanner: true,
+          shouldShowList: true,
+        }),
+      });
+
+      const { status: existingStatus } =
+        await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== "granted") {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== "granted") {
+        console.warn("Failed to get push token for push notification!");
+        return;
+      }
+
+      if (Platform.OS === "android") {
+        Notifications.setNotificationChannelAsync("default", {
+          name: "default",
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: "#FF231F7C",
+        });
+      }
+    };
+
+    const initSocket = async () => {
+      const token = await storage.getToken();
+      const user = await storage.getUser();
+      if (token && user) {
+        socketService.connect(token);
+        socketService.emit("join_room", user.user_id);
+      }
+    };
+
+    setupNotifications();
+    initSocket();
     fetchData();
 
     const handleUpdate = () => fetchData();
+    const handleNewNotification = (data: any) => {
+      setNotifications((prev) => [data, ...prev]);
+      setUnreadCount((prev) => prev + 1);
+    };
+
+    const handleNewMessage = (msg: any) => {
+      fetchData();
+      // Client is definitely NOT in ClientMessages if they are in ClientDashboard
+      // because they are separate routes. So we show notification.
+      if (!isExpoGo) {
+        const Notifications = require("expo-notifications");
+        Notifications.scheduleNotificationAsync({
+          content: {
+            title: `New message from ${msg.sender_name || "Photographer"}`,
+            body: msg.message || "Are you available?",
+            data: { senderId: msg.sender_id },
+          },
+          trigger: null,
+        });
+      }
+    };
+
+    const handleAdminActionNotification = async (data: any) => {
+      const action = data?.action || data?.status;
+      if (action === "BLOCKED") {
+        Alert.alert(
+          "Account Blocked",
+          data?.message ||
+            "Your account has been blocked by the admin. You will be logged out.",
+          [
+            {
+              text: "OK",
+              onPress: async () => {
+                await storage.clearAuth();
+                socketService.disconnect();
+                router.replace("/login");
+              },
+            },
+          ],
+          { cancelable: false },
+        );
+      } else if (action === "WARNING") {
+        Alert.alert(
+          "⚠️ Admin Warning",
+          data?.message ||
+            "Your account has received a warning from admin. Please review community guidelines.",
+        );
+      }
+    };
+
     socketService.on("photographer_updated", handleUpdate);
+    socketService.on("new_notification", handleNewNotification);
+    socketService.on("notification", handleNewNotification);
+    socketService.on("new_message", handleNewMessage);
+    socketService.on(
+      "admin_action_notification",
+      handleAdminActionNotification,
+    );
+
     return () => {
       socketService.off("photographer_updated", handleUpdate);
+      socketService.off("new_notification", handleNewNotification);
+      socketService.off("notification", handleNewNotification);
+      socketService.off("new_message", handleNewMessage);
+      socketService.off(
+        "admin_action_notification",
+        handleAdminActionNotification,
+      );
     };
   }, []);
 
@@ -748,7 +1017,10 @@ export default function ClientDashboard() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: background }}>
+    <View
+      style={{ flex: 1, backgroundColor: background }}
+      testID="client-dashboard"
+    >
       <View
         style={[
           styles.header,
@@ -765,6 +1037,19 @@ export default function ClientDashboard() {
         >
           ClickSeekers
         </ThemedText>
+        <TouchableOpacity
+          style={styles.notifBtn}
+          onPress={() => setShowNotifications(true)}
+        >
+          <Ionicons name="notifications-outline" size={26} color={gray900} />
+          {notifications.filter((n: any) => !n.is_read).length > 0 && (
+            <View style={styles.notifBadge}>
+              <ThemedText style={styles.notifBadgeText}>
+                {notifications.filter((n: any) => !n.is_read).length}
+              </ThemedText>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       <FlatList
@@ -773,14 +1058,22 @@ export default function ClientDashboard() {
         renderItem={({ item }) => (
           <InstagramPost
             item={item}
+            initialLikedState={likedImageIds.includes(item.image_id)}
+            initialSavedState={savedImageIds.includes(item.image_id)}
             onLike={() => {}}
             onCommentPress={(post) => {
               setSelectedPost(post);
               setShowComments(true);
             }}
+            timestamp={refreshTimestamp}
           />
         )}
-        ListHeaderComponent={<StoriesBar photographers={topPhotographers} />}
+        ListHeaderComponent={
+          <StoriesBar
+            photographers={topPhotographers}
+            timestamp={refreshTimestamp}
+          />
+        }
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
         refreshControl={
@@ -803,14 +1096,38 @@ export default function ClientDashboard() {
               <ThemedText type="base" style={{ color: errorColor }}>
                 {error}
               </ThemedText>
-              <TouchableOpacity
-                style={[styles.retryBtn, { backgroundColor: gray900 }]}
-                onPress={fetchData}
-              >
-                <ThemedText type="base" weight="bold" style={{ color: "#fff" }}>
-                  Retry
-                </ThemedText>
-              </TouchableOpacity>
+              <View style={{ flexDirection: "row", gap: 12, marginTop: 16 }}>
+                <TouchableOpacity
+                  style={[
+                    styles.retryBtn,
+                    { backgroundColor: gray900, flex: 1 },
+                  ]}
+                  onPress={fetchData}
+                >
+                  <ThemedText
+                    type="base"
+                    weight="bold"
+                    style={{ color: "#fff" }}
+                  >
+                    Retry
+                  </ThemedText>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.retryBtn,
+                    { backgroundColor: errorColor, flex: 1 },
+                  ]}
+                  onPress={handleLogout}
+                >
+                  <ThemedText
+                    type="base"
+                    weight="bold"
+                    style={{ color: "#fff" }}
+                  >
+                    Logout
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
             </View>
           )
         }
@@ -819,11 +1136,21 @@ export default function ClientDashboard() {
       <CommentsModal
         visible={showComments}
         post={selectedPost}
+        timestamp={refreshTimestamp}
         onClose={() => {
           setShowComments(false);
           setSelectedPost(null);
-          fetchData();
         }}
+      />
+
+      <NotificationModal
+        visible={showNotifications}
+        onClose={() => {
+          setShowNotifications(false);
+          fetchData(); // Refresh to update unread count status
+        }}
+        notifications={notifications}
+        setNotifications={setNotifications}
       />
 
       <ClientBottomNav />
@@ -831,12 +1158,180 @@ export default function ClientDashboard() {
   );
 }
 
+function NotificationModal({
+  visible,
+  onClose,
+  notifications,
+  setNotifications,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  notifications: any[];
+  setNotifications: React.Dispatch<React.SetStateAction<any[]>>;
+}) {
+  const insets = useSafeAreaInsets();
+  const background = useThemeColor({}, "background");
+  const gray900 = useThemeColor({}, "gray900");
+  const gray700 = useThemeColor({}, "gray700");
+  const gray500 = useThemeColor({}, "gray500");
+  const gray100 = useThemeColor({}, "gray100");
+  const infoColor = useThemeColor({}, "info");
+
+  const getIcon = (type: string) => {
+    switch (type) {
+      case "BOOKING":
+        return { name: "calendar" as const, color: "#f97316" };
+      case "COMMENT":
+        return { name: "chatbubble" as const, color: "#6366f1" };
+      case "LIKE":
+        return { name: "heart" as const, color: "#ed4956" };
+      case "REVIEW":
+        return { name: "star" as const, color: "#fbbf24" };
+      case "SYSTEM":
+        return { name: "shield-checkmark" as const, color: "#3b82f6" };
+      default:
+        return { name: "notifications" as const, color: "#6366f1" };
+    }
+  };
+
+  const markAsRead = async (id: number) => {
+    try {
+      const token = await storage.getToken();
+      if (!token) return;
+      await apiService.markNotificationAsRead(id, token);
+      setNotifications((prev) =>
+        prev.map((n) =>
+          n.notification_id === id ? { ...n, is_read: true } : n,
+        ),
+      );
+    } catch (err) {
+      console.error("Failed to mark notification as read:", err);
+    }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent>
+      <View style={styles.modalOverlay}>
+        <View
+          style={[
+            styles.modalContent,
+            { backgroundColor: background, height: "90%" },
+          ]}
+        >
+          <View style={[styles.modalHeader, { paddingTop: insets.top || 16 }]}>
+            <ThemedText type="xl" weight="bold" style={{ color: gray900 }}>
+              Notifications
+            </ThemedText>
+            <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
+              <Ionicons name="close" size={24} color={gray900} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.modalScroll}>
+            {notifications.length === 0 ? (
+              <View style={styles.emptyNotif}>
+                <Ionicons
+                  name="notifications-off-outline"
+                  size={48}
+                  color="#cbd5e1"
+                />
+                <ThemedText style={styles.emptyText}>
+                  No new notifications
+                </ThemedText>
+              </View>
+            ) : (
+              notifications.map((notif) => {
+                const icon = getIcon(notif.type);
+                return (
+                  <TouchableOpacity
+                    key={notif.notification_id}
+                    style={[
+                      styles.notifItem,
+                      {
+                        backgroundColor: notif.is_read
+                          ? background
+                          : gray100 + "40",
+                        flexDirection: "row",
+                        alignItems: "center",
+                      },
+                    ]}
+                    onPress={() =>
+                      !notif.is_read && markAsRead(notif.notification_id)
+                    }
+                  >
+                    <View
+                      style={[
+                        styles.notifIconBox,
+                        { backgroundColor: icon.color + "15" },
+                      ]}
+                    >
+                      <Ionicons name={icon.name} size={20} color={icon.color} />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <ThemedText
+                        style={[styles.notifAction, { color: gray900 }]}
+                        weight="bold"
+                      >
+                        {notif.title}
+                      </ThemedText>
+                      <ThemedText
+                        style={[styles.notifMessage, { color: gray700 }]}
+                      >
+                        {notif.message}
+                      </ThemedText>
+                      <ThemedText
+                        style={[styles.notifUser, { color: gray500 }]}
+                      >
+                        {getRelativeTime(notif.created_at)}
+                      </ThemedText>
+                    </View>
+                    {!notif.is_read && <View style={styles.unreadDot} />}
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 16,
     paddingBottom: 10,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     borderBottomWidth: 0.5,
     borderBottomColor: "#dbdbdb",
+  },
+  notifBtn: {
+    padding: 8,
+    position: "relative",
+  },
+  notifBadge: {
+    position: "absolute",
+    top: 5,
+    right: 5,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#ef4444",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 2,
+    borderWidth: 1.5,
+    borderColor: "#fff",
+  },
+  notifBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "bold",
+    textAlign: "center",
+    includeFontPadding: false,
+    lineHeight: 12,
   },
   loaderContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
   storiesContainer: {
@@ -865,6 +1360,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  storyRankBadge: {
+    position: "absolute",
+    top: 50,
+    backgroundColor: "#f59e0b",
+    paddingHorizontal: 4,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: "#fff",
+  },
   postContainer: { marginBottom: 10, backgroundColor: "#fff" },
   postHeader: {
     flexDirection: "row",
@@ -889,6 +1393,14 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
     marginLeft: 8,
+  },
+  rankBadge: {
+    backgroundColor: "#fffbeb",
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 0.5,
+    borderColor: "#f59e0b",
   },
   postImage: { width: SCREEN_WIDTH, height: SCREEN_WIDTH },
   postImagePlaceholder: {
@@ -976,5 +1488,56 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     fontSize: 14,
     maxHeight: 100,
+  },
+  modalCloseBtn: {
+    padding: 8,
+  },
+  modalScroll: {
+    paddingBottom: 40,
+  },
+  notifItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
+  notifIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  notifAction: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  notifMessage: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  notifUser: {
+    fontSize: 11,
+    marginTop: 4,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#3b82f6",
+    marginLeft: 8,
+  },
+  emptyNotif: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 100,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: "#94a3b8",
+    marginTop: 16,
+    fontWeight: "600",
   },
 });

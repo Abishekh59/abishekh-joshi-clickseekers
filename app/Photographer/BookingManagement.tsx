@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
@@ -8,21 +9,25 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import PaymentReceipt from '../../components/PaymentReceipt';
 import { ThemedText } from '../../components/themed-text';
 import { useAppTheme } from '../../hooks/use-app-theme';
-import { API_HOST, apiService } from '../../services/api';
+import { apiService, API_HOST } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { storage } from '../../utils/storage';
+import { RouteMap } from '../../components/RouteMap';
 
 interface BookingManagementProps {
   onViewBooking?: (booking: any) => void;
 }
 
 export default function BookingManagement({ onViewBooking }: BookingManagementProps) {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'confirmed' | 'completed' | 'cancelled'>('all');
   const [loading, setLoading] = useState(true);
@@ -46,6 +51,62 @@ export default function BookingManagement({ onViewBooking }: BookingManagementPr
   } = useAppTheme();
   const [selectedBooking, setSelectedBooking] = useState<any>(null);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [receiptData, setReceiptData] = useState<any>(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [rejectModalVisible, setRejectModalVisible] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [bookingToReject, setBookingToReject] = useState<number | null>(null);
+  const [rejecting, setRejecting] = useState(false);
+  const [selectedClient, setSelectedClient] = useState<any | null>(null);
+  const [clientModalVisible, setClientModalVisible] = useState(false);
+  const [fetchingClientDetail, setFetchingClientDetail] = useState(false);
+
+  const handleViewClientProfile = async (client: any) => {
+    // Set initial data immediately so the modal opens even if fetch fails
+    setSelectedClient(client);
+    setClientModalVisible(true);
+    setFetchingClientDetail(true);
+
+    const userId = client?.user_id || client?.id || client?.userId;
+    if (!userId) {
+      setFetchingClientDetail(false);
+      return;
+    }
+
+    try {
+      const token = await storage.getToken();
+      if (!token) return;
+      
+      const res = await apiService.getUserById(userId, token);
+      if (res.success && res.data) {
+        // Handle nested user object, direct data, or single-item array
+        let userData = res.data;
+        if (Array.isArray(res.data) && res.data.length > 0) {
+          userData = res.data[0];
+        } else if (res.data.user) {
+          userData = res.data.user;
+        }
+        
+        setSelectedClient((prev: any) => ({
+          ...prev, 
+          ...userData,
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to fetch detailed client info:', err);
+    } finally {
+      setFetchingClientDetail(false);
+    }
+  };
+
+  const avatarUri = (name: string, img?: any) => {
+    if (!img) return `https://ui-avatars.com/api/?name=${encodeURIComponent(name || "U")}&background=${primary.replace('#', '')}&color=fff&bold=true&size=128`;
+    if (typeof img === "string" && img.startsWith("http")) return img;
+    if (typeof img === "string" && img.startsWith("data:image")) return img;
+    if (typeof img === "string") return `${API_HOST}${img.startsWith("/") ? "" : "/"}${img}`;
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name || "U")}&background=${primary.replace('#', '')}&color=fff&bold=true&size=128`;
+  };
   const [allBookings, setAllBookings] = useState<{
     all: any[];
     pending: any[];
@@ -66,16 +127,43 @@ export default function BookingManagement({ onViewBooking }: BookingManagementPr
       if (!token) return;
 
       const response = await apiService.getMyBookings(token);
-      if (response.success && response.data) {
-        const bookings = response.data;
-        setAllBookings({
-          all: bookings,
-          pending: bookings.filter((b: any) => b.status?.status_name === 'PENDING'),
-          confirmed: bookings.filter((b: any) => b.status?.status_name === 'ACCEPTED'),
-          completed: bookings.filter((b: any) => b.status?.status_name === 'COMPLETED'),
-          cancelled: bookings.filter((b: any) => ['CANCELLED', 'REJECTED'].includes(b.status?.status_name)),
-        });
+      const bookings = (response.data || []).map((b: any) => {
+        const pStatus = (b.payment_status || b.payment?.status?.status_name || '')?.toUpperCase();
+        const hasPaymentRecord = !!b.payment;
+        const isPaid = ['COMPLETED', 'PAID', 'SUCCESSFUL'].includes(pStatus) || (hasPaymentRecord && pStatus !== 'FAILED');
+
+        console.log(`[DEBUG] Booking ${b.booking_id}: pStatus=${pStatus}, hasPayment=${hasPaymentRecord}, isPaid=${isPaid}`);
+
+        return {
+          ...b,
+          rawPaymentStatus: pStatus,
+          paymentStatus: isPaid ? 'PAID' : 'UNPAID'
+        };
+      });
+      const now = new Date();
+      // Auto-complete ACCEPTED bookings whose date has passed
+      for (const booking of bookings) {
+        if (booking.status?.status_name === 'ACCEPTED' && booking.event_date) {
+          const bookingEndDate = booking.end_date ? new Date(booking.end_date) : new Date(booking.event_date);
+          // Set to end of day to be safe, or just check if now passed it
+          if (bookingEndDate < now) {
+            try {
+              await apiService.updateBookingStatus(booking.booking_id, 'COMPLETED', token);
+              booking.status = { ...booking.status, status_name: 'COMPLETED' };
+            } catch (e) {
+              console.error('Auto-complete failed for booking', booking.booking_id, e);
+            }
+          }
+        }
       }
+
+      setAllBookings({
+        all: bookings,
+        pending: bookings.filter((b: any) => b.status?.status_name === 'PENDING'),
+        confirmed: bookings.filter((b: any) => b.status?.status_name === 'ACCEPTED'),
+        completed: bookings.filter((b: any) => b.status?.status_name === 'COMPLETED'),
+        cancelled: bookings.filter((b: any) => ['CANCELLED', 'REJECTED'].includes(b.status?.status_name)),
+      });
     } catch (error) {
       console.error('Error fetching bookings:', error);
       Alert.alert('Error', 'Failed to fetch bookings');
@@ -102,11 +190,13 @@ export default function BookingManagement({ onViewBooking }: BookingManagementPr
     socketService.on('new_booking', handleNewBooking);
     socketService.on('booking_cancelled', handleBookingCancelled);
     socketService.on('booking_status_updated', handleBookingStatusUpdated);
+    socketService.on('booking_updated', handleBookingStatusUpdated);
 
     return () => {
       socketService.off('new_booking', handleNewBooking);
       socketService.off('booking_cancelled', handleBookingCancelled);
       socketService.off('booking_status_updated', handleBookingStatusUpdated);
+      socketService.off('booking_updated', handleBookingStatusUpdated);
     };
   }, []);
 
@@ -115,8 +205,64 @@ export default function BookingManagement({ onViewBooking }: BookingManagementPr
       const token = await storage.getToken();
       if (!token) return;
 
+      // Find the booking to get its details
+      const booking = allBookings.all.find(b => b.booking_id === bookingId);
+
       const response = await apiService.updateBookingStatus(bookingId, 'ACCEPTED', token);
       if (response.success) {
+        // Automatically block the booking dates in the photographer's calendar
+        if (booking) {
+          try {
+            // 1. Fetch CURRENT availability first to avoid overwriting
+            const photographerId = booking.photographer_id;
+            const currentAvailRes = await apiService.getPhotographerAvailability(photographerId);
+            let currentBlockedDates: Array<{ date: string; reason: string }> = [];
+            
+            if (currentAvailRes.success && currentAvailRes.data) {
+              currentBlockedDates = currentAvailRes.data.map(item => ({
+                date: item.date.split('T')[0],
+                reason: item.reason || ''
+              }));
+            }
+
+            // 2. Prepare new dates to block
+            const newDatesToBlock: Array<{ date: string; reason: string }> = [];
+            const eventDate = new Date(booking.event_date);
+            const endDate = booking.end_date ? new Date(booking.end_date) : null;
+
+            const clientName = booking.client?.full_name || 'Client';
+            const eventType = booking.event_type || 'Event';
+            const reason = `Booked: ${eventType} - ${clientName}`;
+
+            if (endDate) {
+              const currentDate = new Date(eventDate);
+              while (currentDate <= endDate) {
+                const dateStr = currentDate.toISOString().split('T')[0];
+                newDatesToBlock.push({ date: dateStr, reason });
+                currentDate.setDate(currentDate.getDate() + 1);
+              }
+            } else {
+              const dateStr = eventDate.toISOString().split('T')[0];
+              newDatesToBlock.push({ date: dateStr, reason });
+            }
+
+            // 3. Merge current and new, ensuring uniqueness by date
+            const mergedMap = new Map<string, string>();
+            currentBlockedDates.forEach(d => mergedMap.set(d.date, d.reason));
+            newDatesToBlock.forEach(d => mergedMap.set(d.date, d.reason));
+
+            const finalDates = Array.from(mergedMap.entries()).map(([date, reason]) => ({
+              date,
+              reason
+            }));
+
+            // 4. Save the merged list
+            await apiService.savePhotographerAvailability(finalDates, token);
+          } catch (availabilityError) {
+            console.error('Error blocking dates in calendar:', availabilityError);
+          }
+        }
+
         Alert.alert('Success', 'Booking accepted! Client will be notified.');
         fetchBookings();
       }
@@ -127,61 +273,45 @@ export default function BookingManagement({ onViewBooking }: BookingManagementPr
   };
 
   const handleReject = (bookingId: number) => {
-    Alert.alert(
-      'Reject Booking',
-      'Are you sure you want to reject this booking?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reject',
-          onPress: async () => {
-            try {
-              const token = await storage.getToken();
-              if (!token) return;
-
-              const response = await apiService.updateBookingStatus(bookingId, 'REJECTED', token);
-              if (response.success) {
-                Alert.alert('Rejected', 'Booking rejected.');
-                fetchBookings();
-              }
-            } catch (error) {
-              console.error('Error rejecting booking:', error);
-              Alert.alert('Error', 'Failed to reject booking');
-            }
-          },
-          style: 'destructive'
-        }
-      ]
-    );
+    setBookingToReject(bookingId);
+    setRejectReason("");
+    setRejectModalVisible(true);
   };
 
-  const handleMarkCompleted = (bookingId: number) => {
-    Alert.alert(
-      'Mark as Completed',
-      'Are you sure you want to mark this booking as completed? This will verify that photos have been delivered.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm',
-          onPress: async () => {
-            try {
-              const token = await storage.getToken();
-              if (!token) return;
+  const confirmRejection = async () => {
+    if (!bookingToReject) return;
+    if (!rejectReason.trim()) {
+      Alert.alert("Reason Required", "Please provide a reason for rejection.");
+      return;
+    }
 
-              const response = await apiService.updateBookingStatus(bookingId, 'COMPLETED', token);
-              if (response.success) {
-                Alert.alert('Success', 'Booking marked as completed.');
-                fetchBookings();
-              }
-            } catch (error) {
-              console.error('Error completing booking:', error);
-              Alert.alert('Error', 'Failed to update status');
-            }
-          }
-        }
-      ]
-    );
+    try {
+      setRejecting(true);
+      const token = await storage.getToken();
+      if (!token) return;
+
+      const response = await apiService.updateBookingStatus(
+        bookingToReject,
+        "REJECTED",
+        token,
+        rejectReason.trim()
+      );
+      if (response.success) {
+        Alert.alert("Rejected", "Booking rejected.");
+        setRejectModalVisible(false);
+        setBookingToReject(null);
+        setRejectReason("");
+        fetchBookings();
+      }
+    } catch (error) {
+      console.error("Error rejecting booking:", error);
+      Alert.alert("Error", "Failed to reject booking");
+    } finally {
+      setRejecting(false);
+    }
   };
+
+
 
   const formatDate = (dateString: string) => {
     try {
@@ -197,168 +327,191 @@ export default function BookingManagement({ onViewBooking }: BookingManagementPr
   };
 
   const getStatusColor = (status?: string) => {
-    switch (status) {
-      case 'PENDING': return { bg: '#fef3c7', text: warning };
-      case 'ACCEPTED': return { bg: '#d1fae5', text: success };
-      case 'COMPLETED': return { bg: '#dbeafe', text: info };
+    const s = status?.toUpperCase();
+    switch (s) {
+      case 'PENDING': return { bg: '#fef3c7', text: '#d97706' };
+      case 'ACCEPTED': return { bg: '#dcfce7', text: '#16a34a' };
+      case 'COMPLETED': return { bg: '#dbeafe', text: '#2563eb' };
       case 'CANCELLED':
-      case 'REJECTED': return { bg: '#fee2e2', text: errorColor };
-      default: return { bg: gray100, text: gray600 };
+      case 'REJECTED': return { bg: '#f3f4f6', text: '#6b7280' };
+      default: return { bg: '#f3f4f6', text: '#6b7280' };
     }
   };
 
-  const renderBookingCard = (booking: any) => (
-    <View key={booking.booking_id} style={styles.bookingCard}>
-      {/* Client Section */}
-      <View style={styles.clientSection}>
-        <Image
-          source={{
-            uri: booking.client?.profile_image
-              ? `${API_HOST}${booking.client.profile_image}`
-              : 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200'
-          }}
-          style={styles.clientAvatar}
-        />
-        <View style={styles.clientInfo}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <View style={{ flex: 1 }}>
-              <ThemedText weight="bold" style={styles.clientName}>{booking.client?.full_name || 'Generic Client'}</ThemedText>
-              <ThemedText type="xs" weight="medium" style={styles.eventType}>{booking.event_type || 'Event'}</ThemedText>
+  const getInitials = (name: string) => {
+    if (!name) return '?';
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  const renderBookingCard = (booking: any) => {
+    const statusLabel = booking.status?.status_name || 'PENDING';
+    const statusStyle = getStatusColor(statusLabel);
+
+    return (
+      <View key={booking.booking_id} style={[styles.card, { backgroundColor: background }]}>
+        <View style={styles.cardContent}>
+          <View style={styles.cardHeaderRow}>
+            <TouchableOpacity onPress={() => handleViewClientProfile(booking.client)}>
+              <Image
+                source={{
+                  uri: avatarUri(booking.client?.full_name || 'Client', booking.client?.profile_image)
+                }}
+                style={styles.clientAvatar}
+              />
+            </TouchableOpacity>
+            <View style={styles.headerInfo}>
+              <View style={styles.nameStatusRow}>
+                <ThemedText type="base" weight="semibold" style={{ color: gray900 }}>
+                  {booking.client?.full_name || 'Generic Client'}
+                </ThemedText>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
+                    <ThemedText
+                      type="xs"
+                      weight="medium"
+                      style={{ color: statusStyle.text }}
+                    >
+                      {statusLabel}
+                    </ThemedText>
+                  </View>
+                  {booking.paymentStatus === 'PAID' ? (
+                    <View style={[styles.statusBadge, { backgroundColor: '#dcfce7' }]}>
+                      <ThemedText type="xs" weight="bold" style={{ color: '#16a34a' }}>PAID</ThemedText>
+                    </View>
+                  ) : (
+                    booking.status?.status_name === 'ACCEPTED' && (
+                      <View style={[styles.statusBadge, { backgroundColor: '#fee2e2' }]}>
+                        <ThemedText type="xs" weight="bold" style={{ color: '#ef4444' }}>UNPAID</ThemedText>
+                      </View>
+                    )
+                  )}
+                </View>
+              </View>
+              <ThemedText type="sm" style={{ color: gray500 }}>
+                {booking.event_type || 'Photography Session'}
+              </ThemedText>
             </View>
-            {activeTab === 'all' && (
-              <View style={[
-                styles.statusBadge,
-                { backgroundColor: getStatusColor(booking.status?.status_name).bg }
-              ]}>
-                <ThemedText weight="extrabold" style={[
-                  styles.statusBadgeText,
-                  { color: getStatusColor(booking.status?.status_name).text }
-                ]}>{booking.status?.status_name}</ThemedText>
+          </View>
+
+          <View style={styles.detailsContainer}>
+            <View style={styles.detailItem}>
+              <Ionicons name="calendar-outline" size={16} color={gray500} />
+              <ThemedText type="sm" style={{ color: gray600 }}>{formatDate(booking.event_date)}</ThemedText>
+            </View>
+            <View style={styles.detailItem}>
+              <Ionicons name="time-outline" size={16} color={gray500} />
+              <ThemedText type="sm" style={{ color: gray600 }}>
+                {new Date(booking.event_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </ThemedText>
+            </View>
+            <View style={styles.detailItem}>
+              <Ionicons name="location-outline" size={16} color={gray500} />
+              <ThemedText type="sm" style={{ color: gray600 }}>{booking.location}</ThemedText>
+            </View>
+            <View style={styles.detailItem}>
+              <ThemedText type="sm" weight="semibold" style={{ color: primary }}>
+                NPR {booking.amount.toLocaleString()}
+              </ThemedText>
+              <ThemedText type="sm" style={{ color: gray500, marginLeft: 4 }}>
+                • {booking.package?.package_name || 'Standard'} Package
+              </ThemedText>
+            </View>
+          </View>
+
+          {booking.notes && (
+            <View style={[styles.messageBox, { backgroundColor: gray100, marginBottom: 16 }]}>
+              <ThemedText type="xs" style={{ color: gray600, fontStyle: 'italic' }}>
+                "{booking.notes}"
+              </ThemedText>
+            </View>
+          )}
+
+          <View style={styles.actionContainer}>
+            {(activeTab === 'pending' || (activeTab === 'all' && booking.status?.status_name === 'PENDING')) && (
+              <>
+                <TouchableOpacity
+                  style={styles.rejectButton}
+                  onPress={() => handleReject(booking.booking_id)}
+                >
+                  <Ionicons name="close-outline" size={18} color="#ef4444" />
+                  <ThemedText style={styles.rejectButtonText}>Reject</ThemedText>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.acceptButton}
+                  onPress={() => handleAccept(booking.booking_id)}
+                >
+                  <Ionicons name="checkmark-outline" size={18} color="#fff" />
+                  <ThemedText style={styles.acceptButtonText}>Accept</ThemedText>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {(activeTab === 'confirmed' || activeTab === 'completed' || 
+              (activeTab === 'all' && ['ACCEPTED', 'COMPLETED'].includes(booking.status?.status_name))) && (
+              <>
+                <TouchableOpacity
+                  style={styles.viewDetailsButton}
+                  onPress={() => {
+                    setSelectedBooking(booking);
+                    setDetailsModalVisible(true);
+                  }}
+                >
+                  <Ionicons name="information-circle-outline" size={18} color={gray600} />
+                  <ThemedText style={styles.viewDetailsButtonText}>View Details</ThemedText>
+                </TouchableOpacity>
+
+                {booking.paymentStatus === 'PAID' && (
+                  <TouchableOpacity
+                    style={[styles.viewDetailsButton, { backgroundColor: '#f0fdf4', borderColor: '#16a34a', borderWidth: 1 }]}
+                    onPress={async () => {
+                      try {
+                        setReceiptLoading(true);
+                        const token = await storage.getToken();
+                        if (!token) return;
+                        const res = await apiService.getPaymentDetails(booking.booking_id, token);
+                        if (res.success && res.data) {
+                          setReceiptData(res.data);
+                          setShowReceiptModal(true);
+                        }
+                      } catch (err) {
+                        console.error('Failed to fetch receipt:', err);
+                        Alert.alert('Error', 'Failed to load receipt.');
+                      } finally {
+                        setReceiptLoading(false);
+                      }
+                    }}
+                  >
+                    <Ionicons name="receipt-outline" size={18} color="#16a34a" />
+                    <ThemedText style={[styles.viewDetailsButtonText, { color: '#16a34a' }]}>Receipt</ThemedText>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+
+            {(activeTab === 'cancelled' || (activeTab === 'all' && ['CANCELLED', 'REJECTED'].includes(booking.status?.status_name))) && (
+              <View style={[styles.viewDetailsButton, { backgroundColor: '#fee2e2', flex: 1 }]}>
+                <Ionicons name="close-circle-outline" size={18} color="#ef4444" />
+                <ThemedText style={[styles.viewDetailsButtonText, { color: '#ef4444' }]}>
+                  {booking.status?.status_name === 'REJECTED' ? 'Rejected' : 'Cancelled'}
+                </ThemedText>
               </View>
             )}
           </View>
-          <ThemedText type="sm" weight="bold" style={styles.bookingAmount}>NPR {booking.amount.toLocaleString()}</ThemedText>
         </View>
       </View>
-
-      {/* Booking Details */}
-      <View style={styles.detailsSection}>
-        <View style={styles.detailRow}>
-          <Ionicons name="calendar" size={16} color={gray400} />
-          <View style={styles.detailContent}>
-            <ThemedText type="sm" weight="medium" style={styles.detailDate}>{formatDate(booking.event_date)}</ThemedText>
-            {/* Booking model doesn't seem to have a explicit time field, using date for now */}
-            <ThemedText type="xs" style={styles.detailTime}>{new Date(booking.event_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</ThemedText>
-          </View>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Ionicons name="location" size={16} color={gray400} />
-          <ThemedText type="sm" style={styles.detailLocation}>{booking.location}</ThemedText>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Ionicons name="gift" size={16} color={gray400} />
-          <ThemedText type="sm" style={styles.detailPackage}>{booking.package?.package_name || 'Standard'} Package</ThemedText>
-        </View>
-
-        {booking.notes && (
-          <View style={styles.messageBox}>
-            <ThemedText type="xs" style={styles.messageText}>{booking.notes}</ThemedText>
-          </View>
-        )}
-      </View>
-
-      {/* Actions */}
-      <View style={styles.actionsSection}>
-        {(activeTab === 'pending' || (activeTab === 'all' && booking.status?.status_name === 'PENDING')) && (
-          <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={[styles.rejectButton, { flex: 0.8, paddingHorizontal: 4 }]}
-              onPress={() => handleReject(booking.booking_id)}
-            >
-              <Ionicons name="close" size={16} color={errorColor} />
-              <ThemedText type="xs" weight="bold" style={styles.rejectButtonText} numberOfLines={1}>Reject</ThemedText>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.viewDetailsButton, { backgroundColor: white, flex: 1.2, borderWidth: 1, borderColor: gray300, marginHorizontal: 4 }]}
-              onPress={() => {
-                setSelectedBooking(booking);
-                setDetailsModalVisible(true);
-              }}
-            >
-              <ThemedText type="xs" weight="bold" style={[styles.viewDetailsButtonText, { color: gray700 }]} numberOfLines={1}>View Details</ThemedText>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.acceptButton, { flex: 0.8, paddingHorizontal: 4 }]}
-              onPress={() => handleAccept(booking.booking_id)}
-            >
-              <Ionicons name="checkmark" size={16} color={white} />
-              <ThemedText type="xs" weight="bold" style={styles.acceptButtonText} numberOfLines={1}>Accept</ThemedText>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {(activeTab === 'confirmed' || (activeTab === 'all' && booking.status?.status_name === 'ACCEPTED')) && (
-          <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={styles.messageButton}
-              onPress={() => onViewBooking?.(booking)}
-            >
-              <Ionicons name="chatbubble" size={16} color={info} />
-              <ThemedText type="xs" weight="bold" style={styles.messageButtonText}>Message</ThemedText>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.deliveryButton, { flex: 1, backgroundColor: success, paddingTop: 10, paddingBottom: 10 }]}
-              onPress={() => handleMarkCompleted(booking.booking_id)}
-            >
-              <Ionicons name="checkmark-done-circle" size={18} color={white} />
-              <ThemedText type="xs" weight="bold" style={styles.uploadButtonText}>Complete</ThemedText>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.viewDetailsButton, { flex: 0.8 }]}
-              onPress={() => {
-                setSelectedBooking(booking);
-                setDetailsModalVisible(true);
-              }}
-            >
-              <ThemedText type="xs" weight="bold" style={styles.viewDetailsButtonText}>Details</ThemedText>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {(activeTab === 'completed' || (activeTab === 'all' && booking.status?.status_name === 'COMPLETED')) && (
-          <View style={[styles.deliveryButton, styles.deliveredButton]}>
-            <Ionicons name="checkmark-circle" size={16} color={gray600} />
-            <ThemedText type="xs" weight="bold" style={styles.deliveredButtonText}>✓ Photos Delivered</ThemedText>
-          </View>
-        )}
-
-        {(activeTab === 'cancelled' || (activeTab === 'all' && ['CANCELLED', 'REJECTED'].includes(booking.status?.status_name))) && (
-          <View style={[styles.deliveryButton, { backgroundColor: '#fee2e2' }]}>
-            <Ionicons name="close-circle" size={16} color={errorColor} />
-            <ThemedText type="xs" weight="bold" style={[styles.deliveredButtonText, { color: errorColor }]}>
-              {booking.status?.status_name === 'REJECTED' ? 'Booking Rejected' : 'Booking Cancelled'}
-            </ThemedText>
-          </View>
-        )}
-      </View>
-    </View >
-  );
+    );
+  };
 
   const currentBookings = allBookings[activeTab];
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: Platform.OS === 'ios' ? 10 : insets.top + 16 }]}>
-        <ThemedText type="2xl" weight="bold" style={styles.headerTitle}>Booking Management</ThemedText>
+    <View style={[styles.container, { backgroundColor: background }]}>
+      <View style={[styles.header, { paddingTop: Platform.OS === 'ios' ? 10 : insets.top + 12 }]}>
+        <ThemedText type="2xl" weight="bold" style={{ color: gray900, marginBottom: 20 }}>
+          Booking Management
+        </ThemedText>
 
-        {/* Tabs */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll}>
           <View style={styles.tabsContainer}>
             {(['all', 'pending', 'confirmed', 'completed', 'cancelled'] as const).map((tab) => (
@@ -371,12 +524,9 @@ export default function BookingManagement({ onViewBooking }: BookingManagementPr
                 onPress={() => setActiveTab(tab)}
               >
                 <ThemedText
-                  type="xs"
-                  weight="bold"
-                  style={[
-                    styles.tabButtonText,
-                    activeTab === tab && styles.tabButtonTextActive
-                  ]}
+                  type="sm"
+                  weight={activeTab === tab ? "semibold" : "medium"}
+                  style={{ color: activeTab === tab ? '#fff' : gray600 }}
                 >
                   {tab.charAt(0).toUpperCase() + tab.slice(1)} ({allBookings[tab]?.length || 0})
                 </ThemedText>
@@ -386,26 +536,38 @@ export default function BookingManagement({ onViewBooking }: BookingManagementPr
         </ScrollView>
       </View>
 
-      {/* Bookings List */}
-      <ScrollView
-        style={styles.content}
-        showsVerticalScrollIndicator={false}
-        onContentSizeChange={() => { }}
-      >
-        {loading ? (
-          <View style={styles.emptyState}>
-            <ActivityIndicator size="large" color={primary} />
-            <ThemedText style={styles.emptyText}>Loading bookings...</ThemedText>
-          </View>
-        ) : currentBookings.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="calendar" size={64} color={gray300} />
-            <ThemedText style={styles.emptyText}>No {activeTab} bookings</ThemedText>
-          </View>
-        ) : (
-          currentBookings.map((booking) => renderBookingCard(booking))
-        )}
-      </ScrollView>
+      {loading ? (
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="large" color={primary} />
+          <ThemedText type="base" weight="medium" style={{ color: gray500, marginTop: 10 }}>
+            Loading bookings...
+          </ThemedText>
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={currentBookings.length ? styles.listContent : { flexGrow: 1 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {currentBookings.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name="calendar-outline" size={64} color="#cbd5e1" />
+              </View>
+              <ThemedText type="lg" weight="semibold" style={{ color: gray900 }}>
+                No bookings found
+              </ThemedText>
+              <ThemedText type="sm" style={styles.emptySubtext}>
+                {activeTab === 'all'
+                  ? "You don't have any bookings yet"
+                  : `You have no ${activeTab} bookings`}
+              </ThemedText>
+            </View>
+          ) : (
+            currentBookings.map((booking) => renderBookingCard(booking))
+          )}
+        </ScrollView>
+      )}
 
       {/* Booking Details Modal */}
       <Modal
@@ -425,23 +587,44 @@ export default function BookingManagement({ onViewBooking }: BookingManagementPr
 
             {selectedBooking ? (
               <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
-                {/* Client Profile */}
-                <View style={styles.modalSection}>
+                {/* Client Information */}
+                <View style={[styles.modalSection, { borderBottomWidth: 1, borderBottomColor: gray100, paddingBottom: 20 }]}>
                   <ThemedText type="sm" weight="bold" style={styles.sectionTitle}>Client Information</ThemedText>
-                  <View style={styles.modalClientRow}>
-                    <Image
-                      source={{
-                        uri: selectedBooking.client?.profile_image
-                          ? `${API_HOST}${selectedBooking.client.profile_image}`
-                          : 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200'
-                      }}
-                      style={styles.modalClientAvatar}
-                    />
-                    <View>
-                      <ThemedText weight="bold" style={styles.modalClientName}>{selectedBooking.client?.full_name || 'Generic Client'}</ThemedText>
-                      {/* You might want to show email or phone here if available */}
-                      <ThemedText type="xs" style={styles.modalClientContact}>{selectedBooking.client?.email}</ThemedText>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <TouchableOpacity onPress={() => handleViewClientProfile(selectedBooking.client)}>
+                        {selectedBooking.client?.profile_image ? (
+                        <Image
+                            source={{
+                            uri: avatarUri(selectedBooking.client?.full_name || 'Client', selectedBooking.client?.profile_image)
+                            }}
+                            style={[styles.clientAvatar, { width: 50, height: 50, borderRadius: 25 }]}
+                        />
+                        ) : (
+                        <View style={[styles.clientAvatar, { width: 50, height: 50, borderRadius: 25, backgroundColor: primary + '20', justifyContent: 'center', alignItems: 'center' }]}>
+                            <ThemedText weight="bold" style={{ color: primary, fontSize: 18 }}>
+                            {getInitials(selectedBooking.client?.full_name || 'Client')}
+                            </ThemedText>
+                        </View>
+                        )}
+                    </TouchableOpacity>
+                    <View style={{ flex: 1, marginLeft: 15 }}>
+                      <ThemedText weight="bold" type="lg">{selectedBooking.client?.full_name || 'Client'}</ThemedText>
+                      {selectedBooking.client?.email && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                          <Ionicons name="mail-outline" size={14} color={gray500} />
+                          <ThemedText type="xs" style={{ color: gray500, marginLeft: 4 }}>{selectedBooking.client?.email}</ThemedText>
+                        </View>
+                      )}
                     </View>
+                    <TouchableOpacity 
+                      style={[styles.chatBtnCircle, { backgroundColor: primary + '15' }]}
+                      onPress={() => {
+                        setDetailsModalVisible(false);
+                        onViewBooking?.(selectedBooking.booking_id);
+                      }}
+                    >
+                      <Ionicons name="chatbubble-ellipses" size={22} color={primary} />
+                    </TouchableOpacity>
                   </View>
                 </View>
 
@@ -466,6 +649,28 @@ export default function BookingManagement({ onViewBooking }: BookingManagementPr
                     <Ionicons name="location-outline" size={20} color={gray500} />
                     <ThemedText type="sm" style={styles.infoText}>{selectedBooking.location}</ThemedText>
                   </View>
+
+                  {/* Route Map Section - Moved to standalone page */}
+                  {selectedBooking.status?.status_name === 'ACCEPTED' && selectedBooking.location && (
+                    <TouchableOpacity 
+                      style={[styles.navigationPrompt, { backgroundColor: '#f8fafc', borderColor: '#e2e8f0', borderWidth: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }]}
+                      onPress={() => router.push({ 
+                        pathname: '/Photographer/NavigationMap' as any, 
+                        params: { address: selectedBooking.location } 
+                      })}
+                    >
+                      <View style={[styles.navIconCircle, { backgroundColor: primary }]}>
+                        <Ionicons name="navigate" size={24} color="white" />
+                      </View>
+                      <View style={{ flex: 1, marginLeft: 15 }}>
+                        <ThemedText weight="bold" type="base" style={{ color: gray900 }}>Launch Navigation</ThemedText>
+                        <ThemedText type="xs" style={{ color: gray500 }}>Turn-by-turn route to event</ThemedText>
+                      </View>
+                      <View style={{ backgroundColor: primary + '10', padding: 8, borderRadius: 20 }}>
+                        <Ionicons name="chevron-forward" size={18} color={primary} />
+                      </View>
+                    </TouchableOpacity>
+                  )}
                 </View>
 
                 {/* Package & Payment */}
@@ -480,11 +685,56 @@ export default function BookingManagement({ onViewBooking }: BookingManagementPr
                       )}
                     </View>
                   </View>
+
                   <View style={styles.infoRow}>
                     <Ionicons name="cash-outline" size={20} color={gray500} />
-                    <ThemedText type="sm" weight="bold" style={[styles.infoText, { color: primary }]}>
-                      Total: NPR {selectedBooking.amount.toLocaleString()}
-                    </ThemedText>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <ThemedText type="sm" style={styles.infoText}>Status</ThemedText>
+                        <View style={[
+                          styles.statusBadge,
+                          { backgroundColor: (selectedBooking.paymentStatus === 'PAID') ? '#dcfce7' : '#fee2e2' }
+                        ]}>
+                          <ThemedText
+                            weight="extrabold"
+                            style={[
+                              styles.statusBadgeText,
+                              { color: (selectedBooking.paymentStatus === 'PAID') ? '#16a34a' : '#ef4444' }
+                            ]}
+                          >
+                            {selectedBooking.paymentStatus === 'PAID' ? 'PAID' : 'UNPAID'}
+                          </ThemedText>
+                        </View>
+                      </View>
+
+                      {/* Earnings Breakdown */}
+                      <View style={styles.breakdownBox}>
+                        <View style={styles.breakdownRow}>
+                          <ThemedText type="xs" style={styles.breakdownLabel}>Total Amount</ThemedText>
+                          <ThemedText type="xs" weight="bold" style={styles.breakdownValue}>NPR {Number(selectedBooking.amount).toLocaleString()}</ThemedText>
+                        </View>
+
+                        {selectedBooking.payment?.commission_amount !== undefined && (
+                          <>
+                            <View style={styles.breakdownRow}>
+                              <ThemedText type="xs" style={styles.breakdownLabel}>Platform Fee ({selectedBooking.payment.platform_fee_percentage}%)</ThemedText>
+                              <ThemedText type="xs" weight="bold" style={[styles.breakdownValue, { color: '#ef4444' }]}>- NPR {Number(selectedBooking.payment.commission_amount).toLocaleString()}</ThemedText>
+                            </View>
+                            <View style={[styles.breakdownRow, styles.breakdownTotal]}>
+                              <ThemedText type="sm" weight="bold" style={styles.breakdownLabelTotal}>Your Net Payout</ThemedText>
+                              <ThemedText type="sm" weight="extrabold" style={[styles.breakdownValueTotal, { color: '#16a34a' }]}>NPR {Number(selectedBooking.payment.photographer_amount).toLocaleString()}</ThemedText>
+                            </View>
+                          </>
+                        )}
+
+                        {selectedBooking.payment?.commission_amount === undefined && (
+                          <View style={[styles.breakdownRow, styles.breakdownTotal]}>
+                            <ThemedText type="sm" weight="bold" style={styles.breakdownLabelTotal}>Expected Earnings</ThemedText>
+                            <ThemedText type="sm" weight="extrabold" style={[styles.breakdownValueTotal, { color: primary }]}>NPR {Number(selectedBooking.amount).toLocaleString()}*</ThemedText>
+                          </View>
+                        )}
+                      </View>
+                    </View>
                   </View>
                 </View>
 
@@ -522,16 +772,40 @@ export default function BookingManagement({ onViewBooking }: BookingManagementPr
                       </TouchableOpacity>
                     </View>
                   ) : selectedBooking.status?.status_name === 'ACCEPTED' ? (
-                    <TouchableOpacity
-                      style={[styles.messageButton, { width: '100%', paddingVertical: 14 }]}
-                      onPress={() => {
-                        setDetailsModalVisible(false);
-                        onViewBooking?.(selectedBooking);
-                      }}
-                    >
-                      <Ionicons name="chatbubble-ellipses" size={20} color={info} />
-                      <ThemedText type="sm" weight="bold" style={styles.messageButtonText}>Message Client</ThemedText>
-                    </TouchableOpacity>
+                    <View style={styles.modalActionButtons}>
+                      {selectedBooking.paymentStatus === 'PAID' && (
+                        <TouchableOpacity
+                          style={[styles.acceptButton, { flex: 1, paddingVertical: 14, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#16a34a' }]}
+                          onPress={async () => {
+                            try {
+                              setReceiptLoading(true);
+                              const token = await storage.getToken();
+                              if (!token) return;
+                              const res = await apiService.getPaymentDetails(selectedBooking.booking_id, token);
+                              if (res.success && res.data) {
+                                setReceiptData(res.data);
+                                setDetailsModalVisible(false);
+                                setShowReceiptModal(true);
+                              }
+                            } catch (err) {
+                              console.error('Failed to fetch receipt:', err);
+                              Alert.alert('Error', 'Failed to load receipt.');
+                            } finally {
+                              setReceiptLoading(false);
+                            }
+                          }}
+                        >
+                          <Ionicons name="receipt-outline" size={16} color="#16a34a" style={{ marginRight: 6 }} />
+                          <ThemedText type="sm" weight="bold" style={{ color: '#16a34a' }}>View Receipt</ThemedText>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity
+                        style={[styles.closeModalButton, { flex: 1 }]}
+                        onPress={() => setDetailsModalVisible(false)}
+                      >
+                        <ThemedText type="sm" weight="bold" style={styles.closeModalButtonText}>Close</ThemedText>
+                      </TouchableOpacity>
+                    </View>
                   ) : (
                     <TouchableOpacity
                       style={styles.closeModalButton}
@@ -551,201 +825,408 @@ export default function BookingManagement({ onViewBooking }: BookingManagementPr
           </View>
         </View>
       </Modal>
+
+      {/* Client Detail Modal (Admin Style) */}
+      <ClientDetailModal
+        user={selectedClient}
+        loading={fetchingClientDetail}
+        visible={clientModalVisible}
+        onClose={() => {
+            setClientModalVisible(false);
+            setSelectedClient(null);
+        }}
+        avatarUri={avatarUri}
+        primary={primary}
+      />
+
+      {/* Rejection Modal */}
+      <Modal
+        visible={rejectModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setRejectModalVisible(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setRejectModalVisible(false)}
+        >
+          <View style={[styles.modalContent, { height: 'auto', marginBottom: 20, borderRadius: 24 }]}>
+            <View style={styles.modalHeader}>
+              <ThemedText type="lg" weight="bold" style={[styles.modalTitle, { color: errorColor }]}>Reject Booking</ThemedText>
+              <TouchableOpacity onPress={() => setRejectModalVisible(false)}>
+                <Ionicons name="close" size={24} color={gray500} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalSection}>
+              <ThemedText type="sm" weight="bold" style={styles.modalRejectLabel}>Reason for Rejection</ThemedText>
+              <ThemedText type="xs" style={{ color: gray500, marginBottom: 12 }}>Please let the client know why you're unable to accept this booking.</ThemedText>
+              
+              <TextInput
+                style={[styles.rejectionTextInput, { borderColor: gray200, color: gray900, backgroundColor: '#f9fafb' }]}
+                placeholder="e.g. I am already booked for another event on this date."
+                placeholderTextColor={gray400}
+                multiline
+                numberOfLines={4}
+                value={rejectReason}
+                onChangeText={setRejectReason}
+                textAlignVertical="top"
+              />
+            </View>
+
+            <View style={styles.modalRejectActions}>
+              <TouchableOpacity 
+                style={[styles.closeModalButton, { flex: 1, backgroundColor: 'white', borderWidth: 1, borderColor: gray200 }]}
+                onPress={() => setRejectModalVisible(false)}
+              >
+                <ThemedText type="sm" weight="bold" style={{ color: gray600 }}>Cancel</ThemedText>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.confirmRejectButton, { flex: 1, backgroundColor: errorColor }]}
+                onPress={confirmRejection}
+                disabled={rejecting}
+              >
+                {rejecting ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <ThemedText type="sm" weight="bold" style={{ color: 'white' }}>Confirm Reject</ThemedText>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Payment Receipt Modal */}
+      {receiptData && (
+        <PaymentReceipt
+          visible={showReceiptModal}
+          data={receiptData}
+          onClose={() => setShowReceiptModal(false)}
+        />
+      )}
     </View>
   );
 }
 
+// ── Client Detail Modal (Admin Style) ──────────────────────────────────────────
+function ClientDetailModal({
+    user, visible, onClose, avatarUri, primary, loading
+  }: {
+    user: any; visible: boolean; onClose: () => void;
+    avatarUri: (n: string, img?: any) => string;
+    primary: string;
+    loading: boolean;
+  }) {
+    if (!user && !loading) return null;
+  
+    const STATUS_CFG = {
+      ACTIVE: { label: "Active", dot: "#22c55e", bg: "#f0fdf4", text: "#15803d" },
+      WARNING: { label: "Warning", dot: "#f59e0b", bg: "#fefce8", text: "#a16207" },
+      BLOCKED: { label: "Blocked", dot: "#ef4444", bg: "#fef2f2", text: "#b91c1c" },
+    };
+    const st = (user.status || "ACTIVE") as keyof typeof STATUS_CFG;
+    const cfg = STATUS_CFG[st] || STATUS_CFG.ACTIVE;
+    const bookings = user._count?.bookings_as_client || user.bookings_count || user.totalBookings || 0;
+    
+    // Check for multiple possible phone keys (including nested profiles)
+    const phone = user.phone || user.contact_number || user.phoneNumber || user.mobile || user.contact || 
+                  user.profile?.phone || user.clientProfile?.phone || "Not provided";
+                  
+    // Check for multiple possible location keys
+    const loc = user.location || user.address || user.city || user.district || 
+                user.profile?.location || user.clientProfile?.location || "Not provided";
+                
+    const kyc = user.kyc_verified || user.is_kyc_verified ? "Verified" : "Not Verified";
+    const joined = user.created_at || user.createdAt || user.date_joined || user.joined_date || null;
+  
+    const infoRows = [
+      { icon: "person-outline" as const, label: "Role", value: user.role || "CLIENT" },
+      { icon: "mail-outline" as const, label: "Email", value: user.email || "Not provided" },
+      { icon: "calendar-outline" as const, label: "Total Bookings", value: String(bookings) },
+      { icon: "call-outline" as const, label: "Phone", value: phone },
+      { icon: "location-outline" as const, label: "Location", value: loc },
+      { icon: "shield-checkmark-outline" as const, label: "KYC Status", value: kyc },
+      { icon: "time-outline" as const, label: "Joined", value: joined ? new Date(joined).toLocaleDateString("en-US", { month: "long", year: "numeric" }) : "—" },
+    ].filter(row => {
+      // Hide KYC for clients
+      if (row.label === "KYC Status" && (user.role === "CLIENT" || !user.role)) return false;
+      return true;
+    });
+  
+    return (
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <View style={ms.overlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={onClose} />
+          <View style={ms.sheet}>
+            <View style={ms.handle} />
+  
+            {/* Profile header */}
+            <View style={ms.profileRow}>
+              <Image
+                source={{ uri: avatarUri(user.full_name, user.profile_image) }}
+                style={ms.avatar}
+              />
+              <View style={{ flex: 1, marginLeft: 14 }}>
+                <ThemedText weight="extrabold" style={ms.name}>{user.full_name}</ThemedText>
+                <ThemedText style={ms.emailText}>{user.email}</ThemedText>
+                <View style={[ms.badge, { backgroundColor: cfg.bg }]}>
+                  <View style={[ms.dot, { backgroundColor: cfg.dot }]} />
+                  <ThemedText weight="bold" style={[ms.badgeText, { color: cfg.text }]}>{cfg.label}</ThemedText>
+                </View>
+              </View>
+            </View>
+  
+            {/* Info rows */}
+            <View style={ms.infoCard}>
+              {loading ? (
+                <View style={{ padding: 40, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color={primary} />
+                    <ThemedText style={{ marginTop: 12, color: '#64748b', fontSize: 13 }}>Fetching details...</ThemedText>
+                </View>
+              ) : (
+                infoRows.map((r, i) => (
+                    <View key={i} style={[ms.infoRow, i < infoRows.length - 1 && { borderBottomWidth: 1, borderBottomColor: "#f1f5f9" }]}>
+                    <View style={ms.infoIcon}>
+                        <Ionicons name={r.icon} size={15} color={primary} />
+                    </View>
+                    <ThemedText style={ms.infoLabel}>{r.label}</ThemedText>
+                    <ThemedText weight="bold" style={ms.infoVal}>{r.value}</ThemedText>
+                    </View>
+                ))
+              )}
+            </View>
+  
+            <TouchableOpacity onPress={onClose} style={[ms.closeBtn, { backgroundColor: primary }]}>
+              <ThemedText weight="bold" style={{ color: "#fff", fontSize: 14 }}>Close</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+  
+  const ms = StyleSheet.create({
+    overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+    sheet: { backgroundColor: "#fff", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 24, paddingBottom: 36 },
+    handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: "#e2e8f0", alignSelf: "center", marginBottom: 20 },
+    profileRow: { flexDirection: "row", alignItems: "center", marginBottom: 20 },
+    avatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: "#f1f5f9" },
+    name: { fontSize: 18, color: "#0f172a", marginBottom: 3 },
+    emailText: { fontSize: 12, color: "#64748b", marginBottom: 8 },
+    badge: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+    dot: { width: 6, height: 6, borderRadius: 3, marginRight: 5 },
+    badgeText: { fontSize: 11 },
+    infoCard: { backgroundColor: "#f8fafc", borderRadius: 12, marginBottom: 20, overflow: "hidden", borderWidth: 1, borderColor: "#e9edf2" },
+    infoRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 14, gap: 10 },
+    infoIcon: { width: 30, height: 30, borderRadius: 8, backgroundColor: "#eef2ff", alignItems: "center", justifyContent: "center" },
+    infoLabel: { flex: 1, fontSize: 13, color: "#64748b" },
+    infoVal: { fontSize: 13, color: "#0f172a" },
+    closeBtn: { paddingVertical: 13, borderRadius: 12, alignItems: "center" },
+  });
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f9fafb',
-  },
+  container: { flex: 1 },
   header: {
-    backgroundColor: 'white',
-    paddingTop: 16,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
+    paddingTop: 12,
     paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
   },
   headerTitle: {
     fontSize: 24,
-    // fontWeight: 'bold', // Removed as ThemedText handles weight
     color: '#111827',
-    marginBottom: 16,
+    marginBottom: 20,
+  },
+  tabsScroll: {
+    flexGrow: 0,
+    marginBottom: 8,
   },
   tabsContainer: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 12,
   },
   tabButton: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     borderRadius: 8,
     backgroundColor: '#f3f4f6',
+    minWidth: 100,
     alignItems: 'center',
   },
   tabButtonActive: {
     backgroundColor: '#2563eb',
   },
   tabButtonText: {
-    fontSize: 12,
-    // fontWeight: '600', // Removed as ThemedText handles weight
-    color: '#374151',
+    fontSize: 14,
+    color: '#4b5563',
   },
   tabButtonTextActive: {
-    color: 'white',
+    color: '#fff',
   },
   content: {
     flex: 1,
-    padding: 16,
   },
-  emptyState: {
-    backgroundColor: 'white',
+  listContent: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  card: {
     borderRadius: 16,
-    paddingVertical: 48,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    marginTop: 32,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#6b7280',
-    marginTop: 16,
-    textTransform: 'capitalize',
-  },
-  bookingCard: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
     elevation: 2,
     overflow: 'hidden',
   },
-  clientSection: {
-    flexDirection: 'row',
-    gap: 12,
+  cardContent: {
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
   },
-  clientAvatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
-  },
-  clientInfo: {
-    flex: 1,
-  },
-  clientName: {
-    fontSize: 16,
-    // fontWeight: '600', // Removed as ThemedText handles weight
-    color: '#111827',
-  },
-  eventType: {
-    fontSize: 13,
-    color: '#4b5563',
-    marginTop: 4,
-  },
-  bookingAmount: {
-    fontSize: 13,
-    color: '#2563eb',
-    marginTop: 4,
-    // fontWeight: '600', // Removed as ThemedText handles weight
-  },
-  detailsSection: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
-    gap: 12,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'flex-start',
-  },
-  detailContent: {
-    flex: 1,
-  },
-  detailDate: {
-    fontSize: 14,
-    color: '#111827',
-    // fontWeight: '500', // Removed as ThemedText handles weight
-  },
-  detailTime: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginTop: 2,
-  },
-  detailLocation: {
-    fontSize: 14,
-    color: '#4b5563',
-    flex: 1,
-  },
-  detailPackage: {
-    fontSize: 14,
-    color: '#4b5563',
-    flex: 1,
-  },
-  messageBox: {
-    backgroundColor: '#f9fafb',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 4,
-  },
-  messageText: {
-    fontSize: 13,
-    color: '#374151',
-    lineHeight: 20,
-  },
-  actionsSection: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#f9fafb',
-    borderTopWidth: 1,
-    borderTopColor: '#f3f4f6',
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  rejectButton: {
-    flex: 1,
+  cardHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ef4444',
-    backgroundColor: 'white',
+    marginBottom: 16,
   },
-  rejectButtonText: {
-    fontSize: 13,
-    // fontWeight: '600', // Removed as ThemedText handles weight
-    color: '#ef4444',
+  clientAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#e5e7eb',
+    marginRight: 12
+  },
+  headerInfo: {
+    flex: 1,
+  },
+  nameStatusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12
+  },
+  statusBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  detailsContainer: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  messageBox: {
+    padding: 12,
+    borderRadius: 8,
+  },
+  messageText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  navigationPrompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    marginTop: 8,
+  },
+  navIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chatBtnCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionContainer: {
+    marginTop: 8,
+    flexDirection: 'row',
+    gap: 10,
   },
   acceptButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    backgroundColor: '#2563eb',
+    paddingVertical: 12,
     borderRadius: 8,
-    backgroundColor: '#059669',
+    gap: 8,
   },
   acceptButtonText: {
-    fontSize: 13,
-    // fontWeight: '600', // Removed as ThemedText handles weight
-    color: 'white',
+    color: '#fff',
+    fontSize: 14,
+  },
+  rejectButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderColor: '#ef4444',
+    borderWidth: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    gap: 8,
+  },
+  rejectButtonText: {
+    color: '#ef4444',
+    fontSize: 14,
+  },
+  viewDetailsButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 8,
+    gap: 8,
+    backgroundColor: '#f3f4f6',
+  },
+  viewDetailsButtonText: {
+    color: '#4b5563',
+    fontSize: 14,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    marginTop: 60,
+  },
+  emptyIcon: {
+    marginBottom: 16,
+  },
+  emptyText: {
+    fontSize: 18,
+    color: '#111827',
+    marginTop: 8,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginTop: 8,
+    width: '80%',
   },
   messageButton: {
     flex: 1,
@@ -762,22 +1243,7 @@ const styles = StyleSheet.create({
   },
   messageButtonText: {
     fontSize: 13,
-    // fontWeight: '600', // Removed as ThemedText handles weight
     color: '#2563eb',
-  },
-  viewDetailsButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#2563eb',
-  },
-  viewDetailsButtonText: {
-    fontSize: 13,
-    // fontWeight: '600', // Removed as ThemedText handles weight
-    color: 'white',
   },
   deliveryButton: {
     flexDirection: 'row',
@@ -793,12 +1259,10 @@ const styles = StyleSheet.create({
   },
   deliveredButtonText: {
     fontSize: 13,
-    // fontWeight: '600', // Removed as ThemedText handles weight
     color: '#4b5563',
   },
   uploadButtonText: {
     fontSize: 13,
-    // fontWeight: '600', // Removed as ThemedText handles weight
     color: 'white',
   },
   modalOverlay: {
@@ -824,7 +1288,6 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: 20,
-    // fontWeight: 'bold', // Removed as ThemedText handles weight
     color: '#111827',
   },
   modalBody: {
@@ -835,7 +1298,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 16,
-    // fontWeight: '600', // Removed as ThemedText handles weight
     color: '#374151',
     marginBottom: 12,
     letterSpacing: 0.5,
@@ -856,7 +1318,6 @@ const styles = StyleSheet.create({
   },
   modalClientName: {
     fontSize: 18,
-    // fontWeight: '600', // Removed as ThemedText handles weight
     color: '#111827',
   },
   modalClientContact: {
@@ -906,21 +1367,63 @@ const styles = StyleSheet.create({
   },
   closeModalButtonText: {
     fontSize: 16,
-    // fontWeight: '600', // Removed as ThemedText handles weight
     color: '#4b5563',
   },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginLeft: 8,
+  breakdownBox: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
-  statusBadgeText: {
-    fontSize: 10,
+  breakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  breakdownLabel: {
+    color: '#64748b',
+  },
+  breakdownValue: {
+    color: '#1e293b',
+  },
+  breakdownTotal: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    marginBottom: 0,
+  },
+  breakdownLabelTotal: {
+    color: '#0f172a',
+  },
+  breakdownValueTotal: {
+    fontSize: 15,
+  },
+  modalRejectLabel: {
+    fontSize: 14,
+    color: '#374151',
+    marginBottom: 4,
     fontWeight: '700',
   },
-  tabsScroll: {
-    flexGrow: 0,
-    marginBottom: 8,
+  rejectionTextInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 14,
+    minHeight: 100,
+  },
+  modalRejectActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+    marginBottom: 10,
+  },
+  confirmRejectButton: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
   },
 });

@@ -11,12 +11,13 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ThemedText } from "../../components/themed-text";
+import { UniversalCalendar } from "../../components/UniversalCalendar";
 import { apiService, KycFormPayload, KycStatusData } from "../../services/api";
 import { storage } from "../../utils/storage";
 
@@ -29,6 +30,7 @@ export default function KYCVerification({
   onBack,
   onComplete,
 }: KYCVerificationProps) {
+  const Text = ThemedText;
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(1);
@@ -79,14 +81,10 @@ export default function KYCVerification({
   const [authorizeVerify, setAuthorizeVerify] = useState(false);
   const [understandFalse, setUnderstandFalse] = useState(false);
 
-  // Date picker state
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [datePickerField, setDatePickerField] = useState<
     "dob" | "issue" | "expiry" | null
   >(null);
-  const [datePickerValue, setDatePickerValue] = useState<Date>(new Date());
-  const [calendarMonth, setCalendarMonth] = useState<Date>(new Date()); // first day of month
-
   // Add a fallback list so picker always works even if the package fails to load.
   const FALLBACK_NEPAL_DISTRICTS = useMemo(
     () => [
@@ -278,6 +276,49 @@ export default function KYCVerification({
   }, []);
 
   const handleNext = () => {
+    if (currentStep === 1) {
+      if (!isStep1Valid) {
+        Alert.alert(
+          "Incomplete details",
+          "Please complete your personal information.",
+        );
+        return;
+      }
+      if (dateOfBirth) {
+        const selectedDate = new Date(dateOfBirth);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        if (selectedDate > today) {
+          Alert.alert(
+            "Invalid Date",
+            "Date of Birth cannot be in the future. Please select a valid date.",
+          );
+          return;
+        }
+      } else {
+        Alert.alert("Required Field", "Please select your Date of Birth.");
+        return;
+      }
+    }
+
+    if (currentStep === 2) {
+      if (!isStep2Valid) {
+        Alert.alert(
+          "Incomplete document details",
+          "Please complete your document information.",
+        );
+        return;
+      }
+      if (!isStep2DocsValid) {
+        Alert.alert(
+          "Missing Document Image",
+          "Front image of the document is required.",
+        );
+        return;
+      }
+    }
+
     if (currentStep < 3) {
       setCurrentStep(currentStep + 1);
     }
@@ -488,8 +529,16 @@ export default function KYCVerification({
       }
 
       setKycStatus(result.data ?? null);
-      Alert.alert("KYC submitted", "KYC submitted. Awaiting admin review.");
-      if (typeof onComplete === "function") onComplete();
+      Alert.alert(
+        "KYC Submitted",
+        "The KYC form is filled. Your KYC will be under review.",
+        [
+          {
+            text: "OK",
+            onPress: () => router.replace("/Photographer/PhotographerProfile"),
+          },
+        ],
+      );
     } catch (e: any) {
       Alert.alert(
         "Submission failed",
@@ -524,7 +573,7 @@ export default function KYCVerification({
     currentStep === 1
       ? isStep1Valid
       : currentStep === 2
-        ? isStep2AllValid
+        ? isStep2Valid
         : isStep3Valid;
 
   const submitButtonDisabled =
@@ -576,7 +625,19 @@ export default function KYCVerification({
         {currentStep < 3 ? (
           <TouchableOpacity
             style={styles.headerRightButton}
-            onPress={() => router.push("/Photographer/PhotographerDashboard")}
+            onPress={() => {
+              Alert.alert(
+                "Registration Completed",
+                "You can complete KYC verification later.",
+                [
+                  {
+                    text: "OK",
+                    onPress: () =>
+                      router.replace("/Photographer/PhotographerProfile"),
+                  },
+                ],
+              );
+            }}
           >
             <Text style={styles.skipText}>Skip For Now</Text>
           </TouchableOpacity>
@@ -736,149 +797,26 @@ export default function KYCVerification({
     );
   };
 
-  const monthLabel = (d: Date) => {
-    const months = [
-      "January",
-      "February",
-      "March",
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December",
-    ];
-    return `${months[d.getMonth()]} ${d.getFullYear()}`;
+  const applyPickedDate = (dateStr: string) => {
+    if (datePickerField === "dob") setDateOfBirth(dateStr);
+    if (datePickerField === "issue") setIssueDate(dateStr);
+    if (datePickerField === "expiry") setExpiryDate(dateStr);
+    setDatePickerOpen(false);
   };
-
-  const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
-  const addMonths = (d: Date, delta: number) =>
-    new Date(d.getFullYear(), d.getMonth() + delta, 1);
 
   const openDatePicker = (field: "dob" | "issue" | "expiry") => {
     setDatePickerField(field);
-    const current =
-      field === "dob"
-        ? parseYYYYMMDD(dateOfBirth)
-        : field === "issue"
-          ? parseYYYYMMDD(issueDate)
-          : parseYYYYMMDD(expiryDate);
-
-    const base = current ?? new Date();
-    setDatePickerValue(base);
-    setCalendarMonth(startOfMonth(base));
     setDatePickerOpen(true);
   };
 
-  const applyPickedDate = (d: Date) => {
-    const val = formatYYYYMMDD(d);
-    if (datePickerField === "dob") setDateOfBirth(val);
-    if (datePickerField === "issue") setIssueDate(val);
-    if (datePickerField === "expiry") setExpiryDate(val);
-  };
-
-  const isSameDay = (a: Date, b: Date) =>
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate();
-
-  // Add year dropdown state
-  const [yearDropdownOpen, setYearDropdownOpen] = useState(false);
-  const [yearDropdownYears, setYearDropdownYears] = useState<number[]>([]);
-  const [yearDropdownSelected, setYearDropdownSelected] = useState<number>(
-    new Date().getFullYear(),
-  );
-
-  // Helper to get years for dropdown (1900 to current year)
-  const getYearOptions = () => {
-    const currentYear = new Date().getFullYear();
-    const years: number[] = [];
-    for (let y = currentYear; y >= 1900; y--) years.push(y);
-    return years;
-  };
-
-  // When calendarMonth changes, update year dropdown selected
-  React.useEffect(() => {
-    setYearDropdownSelected(calendarMonth.getFullYear());
-    setYearDropdownYears(getYearOptions());
-  }, [calendarMonth]);
-
-  // Year dropdown modal
-  const renderYearDropdown = () => (
-    <Modal
-      visible={yearDropdownOpen}
-      transparent
-      animationType="fade"
-      onRequestClose={() => setYearDropdownOpen(false)}
-    >
-      <TouchableOpacity
-        activeOpacity={1}
-        style={styles.modalOverlay}
-        onPress={() => setYearDropdownOpen(false)}
-      >
-        <View style={styles.yearDropdownSheet}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Select Year</Text>
-            <TouchableOpacity
-              onPress={() => setYearDropdownOpen(false)}
-              style={styles.modalCloseBtn}
-            >
-              <Ionicons name="close" size={18} color="#374151" />
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={{ maxHeight: 320 }}>
-            {yearDropdownYears.map((y) => (
-              <TouchableOpacity
-                key={y}
-                style={[
-                  styles.yearDropdownItem,
-                  y === yearDropdownSelected && styles.yearDropdownItemSelected,
-                ]}
-                onPress={() => {
-                  setYearDropdownSelected(y);
-                  setCalendarMonth(new Date(y, calendarMonth.getMonth(), 1));
-                  setYearDropdownOpen(false);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.yearDropdownText,
-                    y === yearDropdownSelected &&
-                      styles.yearDropdownTextSelected,
-                  ]}
-                >
-                  {y}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      </TouchableOpacity>
-    </Modal>
-  );
-
   const renderDatePickerModal = () => {
-    const year = calendarMonth.getFullYear();
-    const month = calendarMonth.getMonth();
-    const firstWeekday = new Date(year, month, 1).getDay(); // 0=Sun
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const today = new Date();
-    const maxDob = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate(),
-    );
-
-    // Build cells: leading blanks + days
-    const cells: Array<{ key: string; date?: Date }> = [];
-    for (let i = 0; i < firstWeekday; i++) cells.push({ key: `b-${i}` });
-    for (let d = 1; d <= daysInMonth; d++)
-      cells.push({ key: `d-${d}`, date: new Date(year, month, d) });
-
-    const isDob = datePickerField === "dob";
+    const today = new Date().toISOString().split("T")[0];
+    const currentValue =
+      datePickerField === "dob"
+        ? dateOfBirth
+        : datePickerField === "issue"
+          ? issueDate
+          : expiryDate;
 
     return (
       <Modal
@@ -909,77 +847,15 @@ export default function KYCVerification({
               </TouchableOpacity>
             </View>
 
-            <View style={styles.calendarHeader}>
-              <TouchableOpacity
-                style={styles.calendarNavBtn}
-                onPress={() => setCalendarMonth((m) => addMonths(m, -1))}
-              >
-                <Ionicons name="chevron-back" size={18} color="#111827" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.yearDropdownBtn}
-                onPress={() => setYearDropdownOpen(true)}
-              >
-                <Text style={styles.calendarHeaderText}>
-                  {monthLabel(calendarMonth)}
-                </Text>
-                <Ionicons
-                  name="chevron-down"
-                  size={16}
-                  color="#111827"
-                  style={{ marginLeft: 4 }}
-                />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.calendarNavBtn}
-                onPress={() => setCalendarMonth((m) => addMonths(m, 1))}
-              >
-                <Ionicons name="chevron-forward" size={18} color="#111827" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.weekdayRow}>
-              {["S", "M", "T", "W", "T", "F", "S"].map((w, index) => (
-                <Text key={`weekday-${index}`} style={styles.weekdayText}>
-                  {w}
-                </Text>
-              ))}
-            </View>
-
-            <View style={styles.calendarGrid}>
-              {cells.map((c) => {
-                if (!c.date)
-                  return <View key={c.key} style={styles.dayCellEmpty} />;
-
-                const disabled = isDob && c.date > maxDob;
-                const selected = isSameDay(c.date, datePickerValue);
-
-                return (
-                  <TouchableOpacity
-                    key={c.key}
-                    style={[
-                      styles.dayCell,
-                      selected && styles.dayCellSelected,
-                      disabled && styles.dayCellDisabled,
-                    ]}
-                    disabled={disabled}
-                    activeOpacity={0.85}
-                    onPress={() => setDatePickerValue(c.date!)}
-                  >
-                    <Text
-                      style={[
-                        styles.dayText,
-                        selected && styles.dayTextSelected,
-                        disabled && styles.dayTextDisabled,
-                      ]}
-                    >
-                      {c.date.getDate()}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+            <View style={{ padding: 16 }}>
+              <UniversalCalendar
+                mode="single"
+                selectedDates={currentValue ? [currentValue] : []}
+                onSelectDates={(dates) => applyPickedDate(dates[0])}
+                initialDate={currentValue || today}
+                maxDate={datePickerField === "dob" ? today : undefined}
+                showLegend={false}
+              />
             </View>
 
             <View style={styles.dateModalActions}>
@@ -989,18 +865,8 @@ export default function KYCVerification({
               >
                 <Text style={styles.backBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.nextBtn, { flex: 1 }]}
-                onPress={() => {
-                  applyPickedDate(datePickerValue);
-                  setDatePickerOpen(false);
-                }}
-              >
-                <Text style={styles.nextBtnText}>Done</Text>
-              </TouchableOpacity>
             </View>
           </View>
-          {renderYearDropdown()}
         </TouchableOpacity>
       </Modal>
     );
@@ -1016,6 +882,45 @@ export default function KYCVerification({
       : kycStatus?.status === "APPROVED"
         ? "Verified"
         : "Submit for Verification";
+
+  const renderActionButtons = () => (
+    <View style={styles.scrollFooter}>
+      <TouchableOpacity
+        testID="kyc-back-button"
+        style={styles.backBtn}
+        onPress={handleBack}
+      >
+        <Text style={styles.backBtnText}>
+          {currentStep === 1 ? "Cancel" : "Back"}
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        testID="kyc-next-button"
+        style={[
+          styles.nextBtn,
+          (!isCurrentStepValid ||
+            (currentStep === 3
+              ? submitButtonDisabled
+              : isSubmitting || isLoadingStatus)) &&
+            styles.nextBtnDisabled,
+        ]}
+        onPress={currentStep === 3 ? submitKyc : handleNext}
+        disabled={
+          currentStep === 3
+            ? submitButtonDisabled
+            : isSubmitting || isLoadingStatus
+        }
+      >
+        <Text style={styles.nextBtnText}>
+          {currentStep === 3
+            ? submitButtonLabel
+            : isLoadingStatus
+              ? "Please wait…"
+              : "Next"}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   const renderStep1 = () => (
     <ScrollView
@@ -1049,6 +954,7 @@ export default function KYCVerification({
               Full Name <Text style={styles.required}>*</Text>
             </Text>
             <TextInput
+              testID="kyc-full-name"
               style={styles.input}
               placeholder="Enter your full name"
               placeholderTextColor="#9ca3af"
@@ -1060,6 +966,7 @@ export default function KYCVerification({
           <View style={styles.formField}>
             <Text style={styles.label}>Date of Birth</Text>
             <TouchableOpacity
+              testID="kyc-dob-picker"
               style={styles.dropdown}
               onPress={() => openDatePicker("dob")}
             >
@@ -1077,6 +984,7 @@ export default function KYCVerification({
           <View style={styles.formField}>
             <Text style={styles.label}>Gender</Text>
             <TouchableOpacity
+              testID="kyc-gender-picker"
               style={styles.dropdown}
               onPress={() => setGenderPickerVisible(true)}
             >
@@ -1104,6 +1012,7 @@ export default function KYCVerification({
               Contact Number <Text style={styles.required}>*</Text>
             </Text>
             <TextInput
+              testID="kyc-contact-number"
               style={styles.input}
               placeholder="98XXXXXXXX"
               placeholderTextColor="#9ca3af"
@@ -1118,6 +1027,7 @@ export default function KYCVerification({
               Email <Text style={styles.required}>*</Text>
             </Text>
             <TextInput
+              testID="kyc-email"
               style={styles.input}
               placeholder="your@email.com"
               placeholderTextColor="#9ca3af"
@@ -1140,6 +1050,7 @@ export default function KYCVerification({
               Province <Text style={styles.required}>*</Text>
             </Text>
             <TouchableOpacity
+              testID="kyc-province-picker"
               style={styles.dropdown}
               onPress={() => setProvincePickerVisible(true)}
             >
@@ -1159,6 +1070,7 @@ export default function KYCVerification({
               District <Text style={styles.required}>*</Text>
             </Text>
             <TouchableOpacity
+              testID="kyc-district-picker"
               style={styles.dropdown}
               onPress={() => {
                 if (isLoadingDistricts) {
@@ -1194,6 +1106,7 @@ export default function KYCVerification({
               City <Text style={styles.required}>*</Text>
             </Text>
             <TextInput
+              testID="kyc-city"
               style={styles.input}
               placeholder="e.g., Thamel"
               placeholderTextColor="#9ca3af"
@@ -1202,6 +1115,9 @@ export default function KYCVerification({
             />
           </View>
         </View>
+
+        {/* Action Buttons inside scroll */}
+        {renderActionButtons()}
       </View>
     </ScrollView>
   );
@@ -1238,6 +1154,7 @@ export default function KYCVerification({
               Select Document Type <Text style={styles.required}>*</Text>
             </Text>
             <TouchableOpacity
+              testID="kyc-doc-type-picker"
               style={styles.dropdown}
               onPress={() => setDocumentTypePickerVisible(true)}
             >
@@ -1261,6 +1178,7 @@ export default function KYCVerification({
               Document Number <Text style={styles.required}>*</Text>
             </Text>
             <TextInput
+              testID="kyc-doc-number"
               style={styles.input}
               placeholder="Enter document number"
               placeholderTextColor="#9ca3af"
@@ -1282,6 +1200,7 @@ export default function KYCVerification({
           <View style={styles.formField}>
             <Text style={styles.label}>Issued By</Text>
             <TextInput
+              testID="kyc-issued-by"
               style={styles.input}
               placeholder="e.g., Govt. of Nepal"
               placeholderTextColor="#9ca3af"
@@ -1293,6 +1212,7 @@ export default function KYCVerification({
           <View style={styles.formField}>
             <Text style={styles.label}>Issue Date</Text>
             <TouchableOpacity
+              testID="kyc-issue-date-picker"
               style={styles.dropdown}
               onPress={() => openDatePicker("issue")}
             >
@@ -1342,7 +1262,29 @@ export default function KYCVerification({
             <Text style={styles.label}>
               Document Front Side <Text style={styles.required}>*</Text>
             </Text>
+            {/* Hidden button for E2E testing to "mock" image selection */}
             <TouchableOpacity
+              testID="test-set-front-image"
+              style={{ height: 1, opacity: 0 }}
+              onPress={() => {
+                setFrontImageAsset({
+                  uri: "file:///dummy.jpg",
+                  width: 100,
+                  height: 100,
+                  mimeType: "image/jpeg",
+                  assetId: "test-id",
+                  base64: "dummybase64",
+                  duration: 0,
+                  exif: {},
+                  fileName: "dummy.jpg",
+                  fileSize: 1024,
+                  type: "image",
+                } as any);
+                setDocumentFrontUrl("file:///dummy.jpg");
+              }}
+            />
+            <TouchableOpacity
+              testID="kyc-front-image-picker"
               style={styles.uploadBox}
               onPress={() => pickImage("front")}
             >
@@ -1398,6 +1340,9 @@ export default function KYCVerification({
             ) : null}
           </View>
         </View>
+
+        {/* Action Buttons inside scroll */}
+        {renderActionButtons()}
       </View>
     </ScrollView>
   );
@@ -1502,24 +1447,12 @@ export default function KYCVerification({
             privacy.
           </Text>
         </View>
+
+        {/* Action Buttons inside scroll */}
+        {renderActionButtons()}
       </View>
     </ScrollView>
   );
-
-  // Fix: add missing date helpers (they were referenced but not defined)
-  const formatYYYYMMDD = (d: Date) => {
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  };
-
-  const parseYYYYMMDD = (s: string) => {
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || "").trim());
-    if (!m) return null;
-    const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-    return Number.isNaN(dt.getTime()) ? null : dt;
-  };
 
   // Document number validation state
   const [documentNumberError, setDocumentNumberError] = useState("");
@@ -1593,48 +1526,6 @@ export default function KYCVerification({
       )}
 
       {renderDatePickerModal()}
-
-      {/* Footer Buttons */}
-      <View
-        style={[
-          styles.footer,
-          {
-            paddingBottom: footerBottomSpacing,
-            marginBottom: tabBarHeight,
-          },
-        ]}
-      >
-        <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
-          <Text style={styles.backBtnText}>
-            {currentStep === 1 ? "Cancel" : "Back"}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.nextBtn,
-            (!isCurrentStepValid ||
-              (currentStep === 3
-                ? submitButtonDisabled
-                : isSubmitting || isLoadingStatus)) &&
-              styles.nextBtnDisabled,
-          ]}
-          onPress={currentStep === 3 ? submitKyc : handleNext}
-          disabled={
-            !isCurrentStepValid ||
-            (currentStep === 3
-              ? submitButtonDisabled
-              : isSubmitting || isLoadingStatus)
-          }
-        >
-          <Text style={styles.nextBtnText}>
-            {currentStep === 3
-              ? submitButtonLabel
-              : isLoadingStatus
-                ? "Please wait…"
-                : "Next"}
-          </Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
@@ -1946,6 +1837,12 @@ const styles = StyleSheet.create({
     color: "#6b7280",
     textAlign: "center",
   },
+  scrollFooter: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+    marginBottom: 20,
+  },
   footer: {
     flexDirection: "row",
     gap: 12,
@@ -2052,75 +1949,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f3f4f6",
   },
-  calendarHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 8,
-  },
-  calendarNavBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#f3f4f6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  calendarHeaderText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  weekdayRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingBottom: 6,
-  },
-  weekdayText: {
-    width: `${100 / 7}%`,
-    textAlign: "center",
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#6b7280",
-  },
-  calendarGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    paddingHorizontal: 10,
-    paddingBottom: 8,
-  },
-  dayCellEmpty: {
-    width: `${100 / 7}%`,
-    aspectRatio: 1,
-  },
-  dayCell: {
-    width: `${100 / 7}%`,
-    aspectRatio: 1,
-    padding: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dayCellSelected: {
-    backgroundColor: "#2563eb",
-    borderRadius: 999,
-  },
-  dayCellDisabled: {
-    opacity: 0.35,
-  },
-  dayText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  dayTextSelected: {
-    color: "#fff",
-  },
-  dayTextDisabled: {
-    color: "#6b7280",
-  },
   dateModalActions: {
     flexDirection: "row",
     gap: 12,
@@ -2128,38 +1956,5 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderTopWidth: 1,
     borderTopColor: "#f3f4f6",
-  },
-  yearDropdownSheet: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    maxHeight: 400,
-    marginHorizontal: 32,
-    marginTop: 120,
-  },
-  yearDropdownItem: {
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-  },
-  yearDropdownItemSelected: {
-    backgroundColor: "#eff6ff",
-  },
-  yearDropdownText: {
-    fontSize: 16,
-    color: "#111827",
-    fontWeight: "700",
-  },
-  yearDropdownTextSelected: {
-    color: "#2563eb",
-  },
-  yearDropdownBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
-    backgroundColor: "#f3f4f6",
   },
 });

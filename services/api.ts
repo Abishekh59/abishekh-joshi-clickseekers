@@ -1,17 +1,7 @@
-import { Platform } from "react-native";
-const DEV_API_HOST =
+export const API_HOST =
   process.env.EXPO_PUBLIC_API_HOST ||
-  Platform.select({
-    ios: "192.168.100.16",
-    android: "192.168.100.16",
-    default: "192.168.100.16",
-  });
-
-const DEV_API_PORT = process.env.EXPO_PUBLIC_API_PORT || "8000";
-
-export const API_HOST = __DEV__
-  ? `http://${DEV_API_HOST}:${DEV_API_PORT}`
-  : "https://my-production-api.com";
+  "https://abishekh-joshi-clickseekers.onrender.com";
+// process.env.EXPO_PUBLIC_API_HOST || "http://192.168.42.11:8000";
 
 export const API_BASE_URL = `${API_HOST}/api`;
 
@@ -54,7 +44,19 @@ export interface LoginResponse {
 export interface UpdateProfilePayload {
   full_name?: string;
   phone?: string;
-  profile_image?: string;
+  profile_image?:
+    | string
+    | {
+        file_name?: string;
+        mime_type?: string;
+        encoding?: "base64";
+        data?: string;
+        base64?: string;
+        url?: string;
+        image_url?: string;
+        uri?: string;
+      }
+    | null;
   bio?: string;
   specialization?: string;
   location?: string;
@@ -63,8 +65,8 @@ export interface UpdateProfilePayload {
 export interface CreateBookingPayload {
   photographer_id: string;
   package_id: number;
-  date: string; // ISO or YYYY-MM-DD
-  end_date?: string; // ISO or YYYY-MM-DD
+  date: string;
+  end_date?: string;
   event_type?: string;
   amount: number;
   location: string;
@@ -130,23 +132,35 @@ export interface KycReviewPayload {
 }
 
 export type PortfolioCategoryName =
-  | "WEDDING"
-  | "EVENT"
-  | "PRODUCT"
   | "PORTRAIT"
-  | "AERIAL"
-  | "FASHION"
-  | "TRAVEL"
   | "LANDSCAPE"
-  | "CULTURE"
-  | "NATURE"
   | "WILDLIFE"
+  | "STREET"
+  | "FASHION"
+  | "EVENT"
   | "SPORTS"
-  | "FAMILY"
-  | "NEWBORN"
-  | "COMMERCIAL"
+  | "PRODUCT"
+  | "FOOD"
+  | "TRAVEL"
   | "FINE_ART"
+  | "CONCEPTUAL"
+  | "ABSTRACT"
+  | "BLACK_AND_WHITE"
+  | "SILHOUETTE"
+  | "MACRO"
+  | "ASTROPHOTOGRAPHY"
+  | "LONG_EXPOSURE"
+  | "AERIAL_DRONE"
+  | "ARCHITECTURAL"
   | "REAL_ESTATE"
+  | "COMMERCIAL"
+  | "EDITORIAL"
+  | "DOCUMENTARY"
+  | "PHOTOJOURNALISM"
+  | "LIFESTYLE"
+  | "INFLUENCER_INSTAGRAM"
+  | "CINEMATIC"
+  | "MINIMALIST"
   | "OTHER";
 
 export interface PortfolioCategory {
@@ -167,11 +181,14 @@ export interface PortfolioImage {
   portfolio_id: number;
   title: string | null;
   description: string | null;
+  location: string | null;
   image_url: string;
   likes_count?: number;
   views_count?: number;
   comments_count?: number;
   portfolio?: Portfolio;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Comment {
@@ -193,6 +210,7 @@ export interface Comment {
 export interface UploadPortfolioImagePayload {
   title: string;
   description?: string | null;
+  location?: string | null;
   category: PortfolioCategoryName;
   file: {
     uri: string;
@@ -209,21 +227,49 @@ export const apiService = {
     email: string;
     password: string;
     phone?: string;
+    location?: string;
+    specialization?: string;
     role?: "PHOTOGRAPHER" | "CLIENT";
   }): Promise<ApiResponse<RegisterResponse>> {
-    const response = await fetch(`${API_BASE_URL}/users/register`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    });
+    try {
+      console.log("[Register] Starting registration for:", data.email);
 
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.message || "Registration failed");
+      const response = await fetch(`${API_BASE_URL}/users/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
+
+      console.log("[Register] Response status:", response.status);
+
+      let result;
+      try {
+        result = await response.json();
+      } catch (parseError) {
+        console.error("[Register] JSON parse error:", parseError);
+        throw new Error(
+          "Server returned an invalid response. Please try again.",
+        );
+      }
+
+      console.log("[Register] Response data:", result);
+
+      if (!response.ok) {
+        const errorMsg = result.message || "Registration failed";
+        console.error("[Register] Error:", errorMsg);
+        throw new Error(errorMsg);
+      }
+
+      console.log("[Register] Success!");
+      return result;
+    } catch (error: any) {
+      console.error("[Register] Exception:", error);
+      throw new Error(
+        error.message || "Registration failed. Please try again.",
+      );
     }
-    return result;
   },
 
   // Verify OTP
@@ -231,19 +277,33 @@ export const apiService = {
     email: string;
     otp_code: string;
   }): Promise<ApiResponse<VerifyOTPResponse>> {
-    const response = await fetch(`${API_BASE_URL}/users/verify-otp`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    });
+    try {
+      const response = await fetch(`${API_BASE_URL}/users/verify-otp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
 
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.message || "OTP verification failed");
+      let result;
+      try {
+        result = await response.json();
+      } catch (parseError) {
+        throw new Error(
+          "Server returned an invalid response. Please try again.",
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(result.message || "OTP verification failed");
+      }
+      return result;
+    } catch (error: any) {
+      throw new Error(
+        error.message || "OTP verification failed. Please try again.",
+      );
     }
-    return result;
   },
 
   // Resend OTP
@@ -268,19 +328,31 @@ export const apiService = {
     email: string;
     password: string;
   }): Promise<ApiResponse<LoginResponse>> {
-    const response = await fetch(`${API_BASE_URL}/users/login`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    });
+    try {
+      const response = await fetch(`${API_BASE_URL}/users/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
 
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.message || "Login failed");
+      let result;
+      try {
+        result = await response.json();
+      } catch (parseError) {
+        throw new Error(
+          "Server returned an invalid response. Please try again.",
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(result.message || "Login failed");
+      }
+      return result;
+    } catch (error: any) {
+      throw new Error(error.message || "Login failed. Please try again.");
     }
-    return result;
   },
 
   // Update photographer profile info (requires bearer token)
@@ -376,6 +448,29 @@ export const apiService = {
     return result;
   },
 
+  // Verify Password Reset OTP
+  async verifyPasswordResetOTP(data: {
+    email: string;
+    otp_code: string;
+  }): Promise<ApiResponse<void>> {
+    const response = await fetch(
+      `${API_BASE_URL}/users/verify-password-reset-otp`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      },
+    );
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "OTP verification failed");
+    }
+    return result;
+  },
+
   // Reset Password - Verify OTP and set new password
   async resetPassword(data: {
     email: string;
@@ -465,7 +560,7 @@ export const apiService = {
     payload: KycReviewPayload,
     token: string,
   ): Promise<ApiResponse<KycStatusData>> {
-    const response = await fetch(`${API_BASE_URL}/kyc/review`, {
+    const response = await fetch(`${API_BASE_URL}/admin/kyc/review`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -527,6 +622,9 @@ export const apiService = {
     if (payload.description) {
       formData.append("description", payload.description);
     }
+    if (payload.location) {
+      formData.append("location", payload.location);
+    }
     formData.append("category", payload.category);
     formData.append("image", {
       uri: payload.file.uri,
@@ -576,7 +674,7 @@ export const apiService = {
 
   async getAllPhotographers(): Promise<ApiResponse<any[]>> {
     const response = await fetch(
-      `${API_BASE_URL}/photographer/allPhotographer`,
+      `${API_BASE_URL}/photographer/allPhotographer?t=${Date.now()}`,
     );
     const result = await response.json();
     if (!response.ok) {
@@ -607,8 +705,12 @@ export const apiService = {
     }
     return result;
   },
-  async getTopPhotographers(): Promise<ApiResponse<any[]>> {
-    const response = await fetch(`${API_BASE_URL}/photographer/top`);
+  async getTopPhotographers(
+    period: string = "weekly",
+  ): Promise<ApiResponse<any[]>> {
+    const response = await fetch(
+      `${API_BASE_URL}/photographer/top?period=${period}`,
+    );
     const result = await response.json();
     if (!response.ok) {
       throw new Error(result.message || "Failed to fetch top photographers");
@@ -616,16 +718,76 @@ export const apiService = {
     return result;
   },
 
-  async likePortfolioImage(imageId: number): Promise<ApiResponse<any>> {
+  async toggleImageSave(
+    imageId: number,
+    token: string,
+  ): Promise<ApiResponse<any>> {
+    const response = await fetch(
+      `${API_BASE_URL}/photographer/portfolio/images/${imageId}/save`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    );
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to save image");
+    }
+    return result;
+  },
+
+  async getUserSaves(
+    token: string,
+  ): Promise<
+    ApiResponse<{ savedPosts: PortfolioImage[]; savedImageIds: number[] }>
+  > {
+    const response = await fetch(`${API_BASE_URL}/photographer/my-saves`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to fetch saved images");
+    }
+    return result;
+  },
+
+  async likePortfolioImage(
+    imageId: number,
+    token: string,
+  ): Promise<ApiResponse<any>> {
     const response = await fetch(
       `${API_BASE_URL}/photographer/portfolio/images/${imageId}/like`,
       {
         method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       },
     );
     const result = await response.json();
     if (!response.ok) {
       throw new Error(result.message || "Failed to like image");
+    }
+    return result;
+  },
+
+  async getUserLikes(
+    token: string,
+  ): Promise<ApiResponse<{ likedImageIds: number[] }>> {
+    const response = await fetch(`${API_BASE_URL}/photographer/my-likes`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to fetch liked images");
     }
     return result;
   },
@@ -643,6 +805,150 @@ export const apiService = {
       throw new Error(result.message || "Failed to fetch user profile");
     }
     return result;
+  },
+
+  async getAdminStats(token: string): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/admin/stats`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to fetch admin stats");
+    }
+    return result;
+  },
+
+  async getAdminUsers(
+    token: string,
+    params: {
+      role?: string;
+      status?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    },
+  ): Promise<ApiResponse<any>> {
+    const cleanParams: Record<string, string> = {};
+    if (params.role) cleanParams.role = params.role;
+    if (params.status) cleanParams.status = params.status;
+    if (params.search) cleanParams.search = params.search;
+    if (params.page) cleanParams.page = String(params.page);
+    if (params.limit) cleanParams.limit = String(params.limit);
+
+    const query = new URLSearchParams(cleanParams).toString();
+    const response = await fetch(`${API_BASE_URL}/admin/users?${query}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return response.json();
+  },
+
+  async updateUserStatus(
+    token: string,
+    userId: string,
+    status: "ACTIVE" | "WARNING" | "BLOCKED",
+    reason?: string,
+  ): Promise<ApiResponse<any>> {
+    const response = await fetch(
+      `${API_BASE_URL}/admin/users/${userId}/status`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status, reason }),
+      },
+    );
+    return response.json();
+  },
+
+  async getPendingKyc(token: string): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/admin/kyc/pending`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return response.json();
+  },
+
+  async submitReport(
+    payload: { target_user_id: string; reason: string },
+    token: string,
+  ): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/users/report`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to submit report");
+    }
+    return result;
+  },
+
+  async getAdminReports(token: string): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/admin/reports`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return response.json();
+  },
+
+  async getAdminBookings(
+    token: string,
+    params: {
+      status?: string;
+      page?: number;
+      limit?: number;
+    },
+  ): Promise<ApiResponse<any>> {
+    const cleanParams: Record<string, string> = {};
+    if (params.status) cleanParams.status = params.status;
+    if (params.page) cleanParams.page = String(params.page);
+    if (params.limit) cleanParams.limit = String(params.limit);
+
+    const query = new URLSearchParams(cleanParams).toString();
+    const response = await fetch(`${API_BASE_URL}/admin/bookings?${query}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return response.json();
+  },
+
+  async updateReportStatus(
+    token: string,
+    reportId: number,
+    status_name: string,
+  ): Promise<ApiResponse<any>> {
+    const response = await fetch(
+      `${API_BASE_URL}/admin/reports/${reportId}/status`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status_name }),
+      },
+    );
+    return response.json();
   },
 
   async getMyBookings(token: string): Promise<ApiResponse<any[]>> {
@@ -682,7 +988,12 @@ export const apiService = {
 
   async updatePortfolioImage(
     imageId: number,
-    payload: { category?: string; title?: string; description?: string },
+    payload: {
+      category?: string;
+      title?: string;
+      description?: string;
+      location?: string;
+    },
     token: string,
   ): Promise<ApiResponse<any>> {
     const response = await fetch(
@@ -849,6 +1160,7 @@ export const apiService = {
     bookingId: number,
     status: "ACCEPTED" | "REJECTED" | "COMPLETED" | "CANCELLED",
     token: string,
+    reason?: string,
   ): Promise<ApiResponse<any>> {
     const response = await fetch(`${API_BASE_URL}/bookings/status`, {
       method: "PATCH",
@@ -856,7 +1168,7 @@ export const apiService = {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ booking_id: bookingId, status }),
+      body: JSON.stringify({ booking_id: bookingId, status, reason }),
     });
 
     const result = await response.json();
@@ -891,6 +1203,24 @@ export const apiService = {
         Authorization: `Bearer ${token}`,
       },
     });
+
+    const result = await response.json();
+    return result;
+  },
+
+  async markNotificationAsRead(
+    notificationId: number,
+    token: string,
+  ): Promise<ApiResponse<any>> {
+    const response = await fetch(
+      `${API_BASE_URL}/photographer/notifications/${notificationId}/read`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    );
 
     const result = await response.json();
     return result;
@@ -1012,6 +1342,281 @@ export const apiService = {
     const result = await response.json();
     if (!response.ok) {
       throw new Error(result.message || "Failed to delete comment");
+    }
+    return result;
+  },
+
+  async getImageLikes(
+    imageId: number,
+    token: string,
+  ): Promise<
+    ApiResponse<
+      Array<{
+        user_id: string;
+        full_name: string;
+        profile_image: string | null;
+        email?: string;
+        bio?: string;
+        role?: string;
+      }>
+    >
+  > {
+    const response = await fetch(
+      `${API_BASE_URL}/photographer/portfolio/images/${imageId}/likes`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    );
+
+    // If the endpoint doesn't exist yet (returns HTML), gracefully return empty
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      return { success: true, message: "OK", data: [] };
+    }
+
+    const result = await response.json();
+    if (!response.ok) {
+      // 404 just means endpoint not implemented — return empty silently
+      if (response.status === 404) {
+        return { success: true, message: "OK", data: [] };
+      }
+      throw new Error(result.message || "Failed to fetch likes");
+    }
+    return result;
+  },
+
+  async getUserById(userId: string, token: string): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    // Gracefully handle non-JSON responses (e.g. HTML 404 pages)
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      return { success: false, message: "Endpoint not available", data: null };
+    }
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to fetch user details");
+    }
+    return result;
+  },
+
+  // Rewards APIs
+  async getMyRewards(token: string): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/rewards/me`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to fetch rewards");
+    }
+    return result;
+  },
+
+  async getLeaderboard(limit: number = 50): Promise<ApiResponse<any[]>> {
+    const response = await fetch(
+      `${API_BASE_URL}/rewards/leaderboard?limit=${limit}`,
+    );
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to fetch leaderboard");
+    }
+    return result;
+  },
+
+  // Availability APIs
+  async getPhotographerAvailability(
+    photographerId: string,
+  ): Promise<ApiResponse<Array<{ id: number; date: string; reason: string }>>> {
+    const response = await fetch(
+      `${API_BASE_URL}/availability/${photographerId}`,
+    );
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to fetch availability");
+    }
+    return result;
+  },
+
+  async savePhotographerAvailability(
+    dates: Array<{ date: string; reason?: string }>,
+    token: string,
+  ): Promise<ApiResponse<void>> {
+    const response = await fetch(`${API_BASE_URL}/availability`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ dates }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to save availability");
+    }
+    return result;
+  },
+
+  async deletePhotographerAvailability(
+    dates: string[],
+    token: string,
+  ): Promise<ApiResponse<void>> {
+    const response = await fetch(`${API_BASE_URL}/availability`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ dates }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to delete availability");
+    }
+    return result;
+  },
+
+  async initiatePayment(
+    payload: {
+      booking_id: number;
+      amount: number;
+      return_url: string;
+      website_url: string;
+    },
+    token: string,
+  ) {
+    const response = await fetch(`${API_BASE_URL}/payment/initiate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    return response.json();
+  },
+
+  async verifyPayment(pidx: string, token: string, booking_id?: number) {
+    const response = await fetch(`${API_BASE_URL}/payment/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ pidx, booking_id }),
+    });
+    return response.json();
+  },
+
+  async getPaymentDetails(
+    bookingId: number,
+    token: string,
+  ): Promise<ApiResponse<any>> {
+    const response = await fetch(
+      `${API_BASE_URL}/payment/details/${bookingId}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    );
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to fetch payment details");
+    }
+    return result;
+  },
+
+  // Favorite Photographers APIs
+  async toggleFavoritePhotographer(
+    photographerId: string,
+    token: string,
+  ): Promise<ApiResponse<{ isFavorited: boolean }>> {
+    const response = await fetch(
+      `${API_BASE_URL}/client/favorites/${photographerId}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    );
+
+    // Check if response is JSON
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      throw new Error(
+        "This feature is not yet available on the backend. Please contact the administrator.",
+      );
+    }
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to toggle favorite");
+    }
+    return result;
+  },
+
+  async getFavoritePhotographers(token: string): Promise<ApiResponse<any[]>> {
+    const response = await fetch(`${API_BASE_URL}/client/favorites`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    // Check if response is JSON
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      throw new Error(
+        "This feature is not yet available on the backend. Please contact the administrator.",
+      );
+    }
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to fetch favorites");
+    }
+    return result;
+  },
+
+  async getFavoritePhotographerIds(
+    token: string,
+  ): Promise<ApiResponse<{ favoriteIds: string[] }>> {
+    const response = await fetch(`${API_BASE_URL}/client/favorites/ids`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    // Check if response is JSON
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      // Return empty array if endpoint doesn't exist yet
+      return { success: true, message: "OK", data: { favoriteIds: [] } };
+    }
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to fetch favorite IDs");
     }
     return result;
   },

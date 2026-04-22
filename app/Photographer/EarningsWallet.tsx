@@ -3,6 +3,7 @@ import { useAppTheme } from '@/hooks/use-app-theme';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Platform,
   ScrollView,
@@ -12,6 +13,8 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { apiService } from '../../services/api';
+import { storage } from '../../utils/storage';
 
 interface EarningsWallet {
   onBack?: () => void;
@@ -43,27 +46,70 @@ export default function EarningsWallet({ onBack }: EarningsWallet) {
     info
   } = useAppTheme();
 
-  const stats = {
-    totalEarnings: 125000,
-    thisMonth: 35000,
-    availableBalance: 28000,
-    pendingPayments: 12000
+  const [stats, setStats] = useState({
+    totalEarnings: 0,
+    thisMonth: 0,
+    availableBalance: 0,
+    pendingPayments: 0
+  });
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [monthlyEarnings, setMonthlyEarnings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchEarningsData = async () => {
+    try {
+      setLoading(true);
+      const token = await storage.getToken();
+      const user = await storage.getUser();
+
+      if (!token || user?.role !== 'PHOTOGRAPHER') {
+        setLoading(false);
+        return;
+      }
+
+      const [earningsRes, statsRes, analyticsRes] = await Promise.all([
+        apiService.getEarnings(token),
+        apiService.getDashboardStats(token),
+        apiService.getAnalytics(token)
+      ]);
+
+      if (earningsRes.success && earningsRes.data) {
+        setTransactions(earningsRes.data.history.map((h: any) => ({
+          id: h.id,
+          client: h.client,
+          amount: h.amount,
+          photographer_amount: h.photographer_amount,
+          commission_amount: h.commission_amount,
+          platform_fee_percentage: h.platform_fee_percentage,
+          status: (h.payment_status === 'COMPLETED' || h.payment_status === 'PAID') ? 'completed' : 'pending',
+          date: h.date,
+          type: 'income'
+        })));
+      }
+
+      if (statsRes.success && statsRes.data) {
+        setStats(prev => ({
+          ...prev,
+          totalEarnings: statsRes.data.stats.earnings,
+          thisMonth: statsRes.data.stats.thisMonthEarnings || 0,
+          availableBalance: statsRes.data.stats.earnings, // Simplified for now
+        }));
+      }
+
+      if (analyticsRes.success && analyticsRes.data) {
+        setMonthlyEarnings(analyticsRes.data.earningsChart || []);
+      }
+
+    } catch (error) {
+      console.error('Error fetching earnings:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const transactions = [
-    { id: 1, client: 'Sita Sharma', amount: 40000, status: 'completed', date: '2024-12-15', type: 'income' },
-    { id: 2, client: 'Ram Thapa', amount: 25000, status: 'completed', date: '2024-12-10', type: 'income' },
-    { id: 3, type: 'withdrawal', amount: -30000, status: 'completed', date: '2024-12-05', bankAccount: 'XXX-1234' },
-    { id: 4, client: 'Maya Gurung', amount: 25000, status: 'pending', date: '2025-01-22', type: 'income' }
-  ];
-
-  const monthlyEarnings = [
-    { month: 'Aug', amount: 45000 },
-    { month: 'Sep', amount: 52000 },
-    { month: 'Oct', amount: 48000 },
-    { month: 'Nov', amount: 55000 },
-    { month: 'Dec', amount: 35000 }
-  ];
+  React.useEffect(() => {
+    fetchEarningsData();
+  }, []);
 
   const formatAmount = (amount: number) => {
     return amount.toLocaleString('en-US');
@@ -126,253 +172,267 @@ export default function EarningsWallet({ onBack }: EarningsWallet) {
       </View>
 
       <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
-        {/* Overview Tab */}
-        {activeTab === 'overview' && (
+        {loading ? (
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
+            <ActivityIndicator size="large" color={primary} />
+            <ThemedText style={{ marginTop: 12, color: gray500 }}>Loading wallet data...</ThemedText>
+          </View>
+        ) : (
           <>
-            {/* Stats Grid */}
-            <View style={styles.statsGrid}>
-              <View style={[styles.statCard, { backgroundColor: background }]}>
-                <View style={styles.statHeader}>
-                  <Ionicons name="wallet" size={20} color="#059669" />
-                  <ThemedText type="xs" style={{ color: gray600, flex: 1 }}>
-                    Total Earnings
-                  </ThemedText>
-                </View>
-                <ThemedText type="lg" weight="bold" style={{ color: gray900 }}>
-                  NPR {formatAmount(stats.totalEarnings)}
-                </ThemedText>
-              </View>
-              <View style={[styles.statCard, { backgroundColor: background }]}>
-                <View style={styles.statHeader}>
-                  <Ionicons name="trending-up" size={20} color={primary} />
-                  <ThemedText type="xs" style={{ color: gray600, flex: 1 }}>
-                    This Month
-                  </ThemedText>
-                </View>
-                <ThemedText type="lg" weight="bold" style={{ color: gray900 }}>
-                  NPR {formatAmount(stats.thisMonth)}
-                </ThemedText>
-              </View>
-            </View>
-
-            {/* Chart */}
-            <View style={[styles.chartCard, { backgroundColor: background }]}>
-              <ThemedText type="base" weight="semibold" style={{ color: gray900, marginBottom: 12 }}>
-                Monthly Earnings
-              </ThemedText>
-              <View style={styles.chartBars}>
-                {monthlyEarnings.map((data, index) => (
-                  <View key={index} style={styles.chartBarWrapper}>
-                    <View
-                      style={[
-                        styles.chartBar,
-                        { height: `${(data.amount / 60000) * 100}%`, backgroundColor: '#dbeafe' }
-                      ]}
-                    >
-                      <ThemedText type="xs" weight="medium" style={{ color: gray600, position: 'absolute', top: -20, textAlign: 'center', width: '100%' }}>
-                        {(data.amount / 1000).toFixed(0)}k
+            {/* Overview Tab */}
+            {activeTab === 'overview' && (
+              <>
+                {/* Stats Grid */}
+                <View style={styles.statsGrid}>
+                  <View style={[styles.statCard, { backgroundColor: background }]}>
+                    <View style={styles.statHeader}>
+                      <Ionicons name="wallet" size={20} color="#059669" />
+                      <ThemedText type="xs" style={{ color: gray600, flex: 1 }}>
+                        Total Earnings
                       </ThemedText>
                     </View>
-                    <ThemedText type="xs" style={{ color: gray600 }}>
-                      {data.month}
+                    <ThemedText type="lg" weight="bold" style={{ color: gray900 }}>
+                      NPR {formatAmount(stats.totalEarnings)}
                     </ThemedText>
                   </View>
-                ))}
-              </View>
-            </View>
+                  <View style={[styles.statCard, { backgroundColor: background }]}>
+                    <View style={styles.statHeader}>
+                      <Ionicons name="trending-up" size={20} color={primary} />
+                      <ThemedText type="xs" style={{ color: gray600, flex: 1 }}>
+                        This Month
+                      </ThemedText>
+                    </View>
+                    <ThemedText type="lg" weight="bold" style={{ color: gray900 }}>
+                      NPR {formatAmount(stats.thisMonth)}
+                    </ThemedText>
+                  </View>
+                </View>
 
-            {/* Pending Payments */}
-            <View style={[styles.pendingCard, { backgroundColor: background }]}>
-              <View style={styles.pendingHeader}>
-                <ThemedText type="base" weight="semibold" style={{ color: gray900 }}>
-                  Pending Payments
-                </ThemedText>
-                <ThemedText type="base" weight="semibold" style={{ color: secondary }}>
-                  NPR {formatAmount(stats.pendingPayments)}
-                </ThemedText>
-              </View>
-              <ThemedText type="xs" style={{ color: gray600 }}>
-                Payment will be released after booking completion
-              </ThemedText>
-            </View>
-          </>
-        )}
+                {/* Chart */}
+                <View style={[styles.chartCard, { backgroundColor: background }]}>
+                  <ThemedText type="base" weight="semibold" style={{ color: gray900, marginBottom: 12 }}>
+                    Monthly Earnings
+                  </ThemedText>
+                  <View style={styles.chartBars}>
+                    {monthlyEarnings.map((data, index) => (
+                      <View key={index} style={styles.chartBarWrapper}>
+                        <View
+                          style={[
+                            styles.chartBar,
+                            { height: `${(data.amount / 60000) * 100}%`, backgroundColor: '#dbeafe' }
+                          ]}
+                        >
+                          <ThemedText type="xs" weight="medium" style={{ color: gray600, position: 'absolute', top: -20, textAlign: 'center', width: '100%' }}>
+                            {(data.amount / 1000).toFixed(0)}k
+                          </ThemedText>
+                        </View>
+                        <ThemedText type="xs" style={{ color: gray600 }}>
+                          {data.month}
+                        </ThemedText>
+                      </View>
+                    ))}
+                  </View>
+                </View>
 
-        {/* Transactions Tab */}
-        {activeTab === 'transactions' && (
-          <FlatList
-            data={transactions}
-            keyExtractor={(item) => item.id.toString()}
-            scrollEnabled={false}
-            renderItem={({ item: transaction }) => (
-              <View style={[styles.transactionCard, { backgroundColor: background }]}>
-                <View style={styles.transactionContent}>
-                  <View style={styles.transactionLeft}>
-                    <View
-                      style={[
-                        styles.transactionIcon,
-                        { backgroundColor: transaction.type === 'income' ? '#d1fae5' : '#fee2e2' }
-                      ]}
-                    >
-                      <Ionicons
-                        name={transaction.type === 'income' ? 'arrow-down' : 'arrow-up'}
-                        size={20}
-                        color={transaction.type === 'income' ? '#059669' : errorColor}
+                {/* Pending Payments */}
+                <View style={[styles.pendingCard, { backgroundColor: background }]}>
+                  <View style={styles.pendingHeader}>
+                    <ThemedText type="base" weight="semibold" style={{ color: gray900 }}>
+                      Pending Payments
+                    </ThemedText>
+                    <ThemedText type="base" weight="semibold" style={{ color: secondary }}>
+                      NPR {formatAmount(stats.pendingPayments)}
+                    </ThemedText>
+                  </View>
+                  <ThemedText type="xs" style={{ color: gray600 }}>
+                    Payment will be released after booking completion
+                  </ThemedText>
+                </View>
+              </>
+            )}
+
+            {/* Transactions Tab */}
+            {activeTab === 'transactions' && (
+              <FlatList
+                data={transactions}
+                keyExtractor={(item) => item.id.toString()}
+                scrollEnabled={false}
+                renderItem={({ item: transaction }) => (
+                  <View style={[styles.transactionCard, { backgroundColor: background }]}>
+                    <View style={styles.transactionContent}>
+                      <View style={styles.transactionLeft}>
+                        <View
+                          style={[
+                            styles.transactionIcon,
+                            { backgroundColor: transaction.type === 'income' ? '#d1fae5' : '#fee2e2' }
+                          ]}
+                        >
+                          <Ionicons
+                            name={transaction.type === 'income' ? 'arrow-down' : 'arrow-up'}
+                            size={20}
+                            color={transaction.type === 'income' ? '#059669' : errorColor}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <ThemedText type="sm" weight="medium" style={{ color: gray900 }}>
+                            {transaction.type === 'income'
+                              ? `Payment from ${transaction.client}`
+                              : 'Withdrawal to bank'}
+                          </ThemedText>
+                          <ThemedText type="xs" style={{ color: gray500, marginTop: 2 }}>
+                            {new Date(transaction.date).toLocaleDateString()}
+                          </ThemedText>
+                          {transaction.type === 'income' && transaction.platform_fee_percentage > 0 && (
+                            <ThemedText type="xs" style={{ color: gray500, marginTop: 2 }}>
+                              Fee: {transaction.platform_fee_percentage}% (NPR {transaction.commission_amount.toLocaleString()})
+                            </ThemedText>
+                          )}
+                          {transaction.bankAccount && (
+                            <ThemedText type="xs" style={{ color: gray400, marginTop: 2 }}>
+                              Account: {transaction.bankAccount}
+                            </ThemedText>
+                          )}
+                        </View>
+                      </View>
+                      <View style={styles.transactionRight}>
+                        <ThemedText
+                          type="sm"
+                          weight="semibold"
+                          style={{ color: transaction.type === 'income' ? '#059669' : errorColor }}
+                        >
+                          {transaction.type === 'income' ? '+' : ''}NPR {(transaction.type === 'income' ? (transaction.photographer_amount || transaction.amount) : Math.abs(transaction.amount)).toLocaleString()}
+                        </ThemedText>
+                        <View
+                          style={[
+                            styles.transactionStatus,
+                            { backgroundColor: transaction.status === 'completed' ? '#d1fae5' : '#fef3c7' }
+                          ]}
+                        >
+                          <ThemedText
+                            type="xs"
+                            weight="medium"
+                            style={{
+                              color: transaction.status === 'completed' ? '#065f46' : '#92400e',
+                              textTransform: 'capitalize'
+                            }}
+                          >
+                            {transaction.status}
+                          </ThemedText>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                )}
+              />
+            )}
+
+            {/* Withdraw Tab */}
+            {activeTab === 'withdraw' && (
+              <>
+                <View style={[styles.withdrawInfo, { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}>
+                  <View style={styles.withdrawInfoContent}>
+                    <Ionicons name="wallet" size={20} color={primary} />
+                    <ThemedText type="sm" weight="medium" style={{ color: primary, flex: 1 }}>
+                      Available to withdraw: NPR {formatAmount(stats.availableBalance)}
+                    </ThemedText>
+                  </View>
+                </View>
+
+                <View style={[styles.withdrawForm, { backgroundColor: background }]}>
+                  <ThemedText type="base" weight="semibold" style={{ color: gray900, marginBottom: 12 }}>
+                    Withdrawal Details
+                  </ThemedText>
+
+                  {/* Amount Field */}
+                  <View style={styles.formField}>
+                    <ThemedText type="sm" weight="medium" style={{ color: gray700, marginBottom: 6 }}>
+                      Amount
+                    </ThemedText>
+                    <View style={styles.inputWrapper}>
+                      <ThemedText type="base" weight="medium" style={{ position: 'absolute', left: 12, top: 12, color: gray500 }}>
+                        NPR
+                      </ThemedText>
+                      <TextInput
+                        style={[styles.formInput, { paddingLeft: 46, backgroundColor: background, color: gray900, borderColor: gray400 }]}
+                        placeholder="Enter amount"
+                        placeholderTextColor={gray400}
+                        keyboardType="number-pad"
+                        value={withdrawAmount}
+                        onChangeText={setWithdrawAmount}
+                        maxLength={10}
                       />
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <ThemedText type="sm" weight="medium" style={{ color: gray900 }}>
-                        {transaction.type === 'income'
-                          ? `Payment from ${transaction.client}`
-                          : 'Withdrawal to bank'}
-                      </ThemedText>
-                      <ThemedText type="xs" style={{ color: gray500, marginTop: 2 }}>
-                        {new Date(transaction.date).toLocaleDateString()}
-                      </ThemedText>
-                      {transaction.bankAccount && (
-                        <ThemedText type="xs" style={{ color: gray400, marginTop: 2 }}>
-                          Account: {transaction.bankAccount}
-                        </ThemedText>
-                      )}
-                    </View>
-                  </View>
-                  <View style={styles.transactionRight}>
-                    <ThemedText
-                      type="sm"
-                      weight="semibold"
-                      style={{ color: transaction.type === 'income' ? '#059669' : errorColor }}
-                    >
-                      {transaction.type === 'income' ? '+' : ''}NPR {Math.abs(transaction.amount).toLocaleString()}
+                    <ThemedText type="xs" style={{ color: gray500, marginTop: 4 }}>
+                      Minimum withdrawal: NPR 1,000
                     </ThemedText>
-                    <View
-                      style={[
-                        styles.transactionStatus,
-                        { backgroundColor: transaction.status === 'completed' ? '#d1fae5' : '#fef3c7' }
-                      ]}
-                    >
-                      <ThemedText
-                        type="xs"
-                        weight="medium"
-                        style={{
-                          color: transaction.status === 'completed' ? '#065f46' : '#92400e',
-                          textTransform: 'capitalize'
-                        }}
-                      >
-                        {transaction.status}
-                      </ThemedText>
+                  </View>
+
+                  {/* Withdrawal Method */}
+                  <View style={styles.formField}>
+                    <ThemedText type="sm" weight="medium" style={{ color: gray700, marginBottom: 6 }}>
+                      Withdrawal Method
+                    </ThemedText>
+                    <View style={styles.methodSelector}>
+                      {['bank', 'esewa', 'khalti'].map((method) => (
+                        <TouchableOpacity
+                          key={method}
+                          style={[
+                            styles.methodOption,
+                            { borderColor: withdrawMethod === method ? primary : gray400 },
+                            withdrawMethod === method && { backgroundColor: '#eff6ff' }
+                          ]}
+                          onPress={() => setWithdrawMethod(method)}
+                        >
+                          <ThemedText
+                            type="xs"
+                            weight={withdrawMethod === method ? 'semibold' : 'medium'}
+                            style={{ color: withdrawMethod === method ? primary : gray500 }}
+                          >
+                            {method === 'bank'
+                              ? 'Bank Transfer'
+                              : method === 'esewa'
+                                ? 'eSewa'
+                                : 'Khalti'}
+                          </ThemedText>
+                        </TouchableOpacity>
+                      ))}
                     </View>
                   </View>
+
+                  {/* Account Details */}
+                  <View style={styles.formField}>
+                    <ThemedText type="sm" weight="medium" style={{ color: gray700, marginBottom: 6 }}>
+                      Bank Account / Wallet ID
+                    </ThemedText>
+                    <TextInput
+                      style={[styles.formInput, { backgroundColor: background, color: gray900, borderColor: gray400 }]}
+                      placeholder="Enter account details"
+                      placeholderTextColor={gray400}
+                      value={accountDetails}
+                      onChangeText={setAccountDetails}
+                    />
+                  </View>
+
+                  <TouchableOpacity style={[styles.submitBtn, { backgroundColor: primary }]}>
+                    <ThemedText type="sm" weight="semibold" style={{ color: 'white' }}>
+                      Request Withdrawal
+                    </ThemedText>
+                  </TouchableOpacity>
                 </View>
-              </View>
-            )}
-          />
-        )}
 
-        {/* Withdraw Tab */}
-        {activeTab === 'withdraw' && (
-          <>
-            <View style={[styles.withdrawInfo, { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}>
-              <View style={styles.withdrawInfoContent}>
-                <Ionicons name="wallet" size={20} color={primary} />
-                <ThemedText type="sm" weight="medium" style={{ color: primary, flex: 1 }}>
-                  Available to withdraw: NPR {formatAmount(stats.availableBalance)}
-                </ThemedText>
-              </View>
-            </View>
-
-            <View style={[styles.withdrawForm, { backgroundColor: background }]}>
-              <ThemedText type="base" weight="semibold" style={{ color: gray900, marginBottom: 12 }}>
-                Withdrawal Details
-              </ThemedText>
-
-              {/* Amount Field */}
-              <View style={styles.formField}>
-                <ThemedText type="sm" weight="medium" style={{ color: gray700, marginBottom: 6 }}>
-                  Amount
-                </ThemedText>
-                <View style={styles.inputWrapper}>
-                  <ThemedText type="base" weight="medium" style={{ position: 'absolute', left: 12, top: 12, color: gray500 }}>
-                    NPR
+                <View style={[styles.infoBox, { backgroundColor: background }]}>
+                  <ThemedText type="sm" weight="semibold" style={{ color: gray900, marginBottom: 8 }}>
+                    Withdrawal Information
                   </ThemedText>
-                  <TextInput
-                    style={[styles.formInput, { paddingLeft: 46, backgroundColor: background, color: gray900, borderColor: gray400 }]}
-                    placeholder="Enter amount"
-                    placeholderTextColor={gray400}
-                    keyboardType="number-pad"
-                    value={withdrawAmount}
-                    onChangeText={setWithdrawAmount}
-                    maxLength={10}
-                  />
+                  <View style={styles.infoList}>
+                    <ThemedText type="xs" style={{ color: gray600 }}>• Processing time: 1-3 business days</ThemedText>
+                    <ThemedText type="xs" style={{ color: gray600 }}>• Transaction fee: 2% (max NPR 100)</ThemedText>
+                    <ThemedText type="xs" style={{ color: gray600 }}>• Minimum withdrawal amount: NPR 1,000</ThemedText>
+                    <ThemedText type="xs" style={{ color: gray600 }}>• Funds are transferred during business hours</ThemedText>
+                  </View>
                 </View>
-                <ThemedText type="xs" style={{ color: gray500, marginTop: 4 }}>
-                  Minimum withdrawal: NPR 1,000
-                </ThemedText>
-              </View>
-
-              {/* Withdrawal Method */}
-              <View style={styles.formField}>
-                <ThemedText type="sm" weight="medium" style={{ color: gray700, marginBottom: 6 }}>
-                  Withdrawal Method
-                </ThemedText>
-                <View style={styles.methodSelector}>
-                  {['bank', 'esewa', 'khalti'].map((method) => (
-                    <TouchableOpacity
-                      key={method}
-                      style={[
-                        styles.methodOption,
-                        { borderColor: withdrawMethod === method ? primary : gray400 },
-                        withdrawMethod === method && { backgroundColor: '#eff6ff' }
-                      ]}
-                      onPress={() => setWithdrawMethod(method)}
-                    >
-                      <ThemedText
-                        type="xs"
-                        weight={withdrawMethod === method ? 'semibold' : 'medium'}
-                        style={{ color: withdrawMethod === method ? primary : gray500 }}
-                      >
-                        {method === 'bank'
-                          ? 'Bank Transfer'
-                          : method === 'esewa'
-                            ? 'eSewa'
-                            : 'Khalti'}
-                      </ThemedText>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* Account Details */}
-              <View style={styles.formField}>
-                <ThemedText type="sm" weight="medium" style={{ color: gray700, marginBottom: 6 }}>
-                  Bank Account / Wallet ID
-                </ThemedText>
-                <TextInput
-                  style={[styles.formInput, { backgroundColor: background, color: gray900, borderColor: gray400 }]}
-                  placeholder="Enter account details"
-                  placeholderTextColor={gray400}
-                  value={accountDetails}
-                  onChangeText={setAccountDetails}
-                />
-              </View>
-
-              <TouchableOpacity style={[styles.submitBtn, { backgroundColor: primary }]}>
-                <ThemedText type="sm" weight="semibold" style={{ color: 'white' }}>
-                  Request Withdrawal
-                </ThemedText>
-              </TouchableOpacity>
-            </View>
-
-            <View style={[styles.infoBox, { backgroundColor: background }]}>
-              <ThemedText type="sm" weight="semibold" style={{ color: gray900, marginBottom: 8 }}>
-                Withdrawal Information
-              </ThemedText>
-              <View style={styles.infoList}>
-                <ThemedText type="xs" style={{ color: gray600 }}>• Processing time: 1-3 business days</ThemedText>
-                <ThemedText type="xs" style={{ color: gray600 }}>• Transaction fee: 2% (max NPR 100)</ThemedText>
-                <ThemedText type="xs" style={{ color: gray600 }}>• Minimum withdrawal amount: NPR 1,000</ThemedText>
-                <ThemedText type="xs" style={{ color: gray600 }}>• Funds are transferred during business hours</ThemedText>
-              </View>
-            </View>
+              </>
+            )}
           </>
         )}
       </ScrollView>

@@ -6,10 +6,10 @@ import {
   Platform,
   StatusBar,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { ThemedText } from "../components/themed-text";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Navbar from "../components/navbar";
 
@@ -23,8 +23,8 @@ export default function Role() {
     <View style={styles.container}>
       <StatusBar translucent backgroundColor="transparent" />
       <ImageBackground
-        source={require("../assets/images/Backdrop for role page.png")}
-        style={styles.background}
+        source={require("../assets/images/backdrop_for_role_page.png")}
+        style={[styles.background, { backgroundColor: '#1e3a8a' }]}
         resizeMode="stretch"
       >
         {/* Back Button */}
@@ -34,14 +34,15 @@ export default function Role() {
 
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Join ClickSeekers</Text>
-          <Text style={styles.subtitle}>
+          <ThemedText style={styles.title}>Join ClickSeekers</ThemedText>
+          <ThemedText style={styles.subtitle}>
             Choose how you'd like to use our platform
-          </Text>
+          </ThemedText>
         </View>
 
         {/* Photographer */}
         <TouchableOpacity
+          testID="photographer-role-button"
           style={styles.card}
           onPress={() => router.push({
             pathname: "/register",
@@ -52,15 +53,16 @@ export default function Role() {
             <Ionicons name="camera-outline" size={30} color="#000" />
           </View>
           <View>
-            <Text style={styles.cardTitle}>I'm a Photographer</Text>
-            <Text style={styles.cardText}>
+            <ThemedText style={styles.cardTitle}>I'm a Photographer</ThemedText>
+            <ThemedText style={styles.cardText}>
               Showcase your work and get booked
-            </Text>
+            </ThemedText>
           </View>
         </TouchableOpacity>
 
         {/* Client */}
         <TouchableOpacity
+          testID="client-role-button"
           style={styles.card}
           onPress={() => router.push({
             pathname: "/register",
@@ -71,10 +73,10 @@ export default function Role() {
             <Ionicons name="person-outline" size={30} color="#000" />
           </View>
           <View>
-            <Text style={styles.cardTitle}>I need a Photographer</Text>
-            <Text style={styles.cardText}>
+            <ThemedText style={styles.cardTitle}>I need a Photographer</ThemedText>
+            <ThemedText style={styles.cardText}>
               Find and book talented photographers
-            </Text>
+            </ThemedText>
           </View>
         </TouchableOpacity>
       </ImageBackground>
@@ -108,6 +110,7 @@ const styles = StyleSheet.create({
     fontSize: 30,
     fontWeight: "600",
     color: "#fff",
+    lineHeight: 38,
   },
   subtitle: {
     color: "#fff",

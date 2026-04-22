@@ -78,6 +78,11 @@ export const Typography = {
     normal: 1.5,
     relaxed: 1.625,
   },
+  fontFamily: Platform.select({
+    ios: 'System',
+    android: 'Roboto',
+    default: 'System',
+  }),
 };
 
 export const Fonts = Platform.select({

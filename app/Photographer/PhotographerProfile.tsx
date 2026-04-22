@@ -16,33 +16,62 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BadgeDisplay } from "../../components/BadgeDisplay";
+import HelpSupportModal from "../../components/HelpSupportModal";
 import LogoLoader from "../../components/LogoLoader";
 import { ThemedText } from "../../components/themed-text";
+import { NEPAL_CITIES } from "../../constants/nepalCities";
+import { PHOTOGRAPHER_TYPES } from "../../constants/photographerTypes";
 import { useAppTheme } from "../../hooks/use-app-theme";
 import { API_HOST, apiService } from "../../services/api";
 import { socketService } from "../../services/socket";
 import { storage } from "../../utils/storage";
 import KYCVerification from "./KYCVerification";
 
-const PHOTOGRAPHER_TYPES = [
-  "Wedding & Event",
-  "Commercial & Fashion",
-  "Portrait & Lifestyle",
-  "Real Estate",
-  "Product",
-  "Aerial & Drone",
-  "Fine Art",
-  "Travel & Nature",
-  "Sports",
-  "Wildlife",
-  "Other",
-];
+
+type ProfileImageValue =
+  | string
+  | {
+    file_name?: string;
+    mime_type?: string;
+    encoding?: "base64";
+    data?: string;
+    base64?: string;
+    url?: string;
+    image_url?: string;
+    uri?: string;
+  }
+  | null
+  | undefined;
 
 const toAbsoluteImageUrl = (url: string | null | undefined) => {
   if (!url || url.trim() === "") return null;
+  if (url.startsWith("data:")) return url;
   if (url.startsWith("http")) return url;
   const path = url.startsWith("/") ? url : `/${url}`;
   return `${API_HOST}${path}`;
+};
+
+const getProfileImageUri = (value: ProfileImageValue) => {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    return toAbsoluteImageUrl(value);
+  }
+
+  const remoteUrl = value.url || value.image_url || value.uri;
+  if (typeof remoteUrl === "string" && remoteUrl.trim() !== "") {
+    return toAbsoluteImageUrl(remoteUrl);
+  }
+
+  const base64 = value.data || value.base64;
+  if (typeof base64 === "string" && base64.trim() !== "") {
+    if (base64.startsWith("data:")) return base64;
+    const mimeType = value.mime_type || "image/jpeg";
+    return `data:${mimeType};base64,${base64}`;
+  }
+
+  return null;
 };
 
 interface PhotographerProfile {
@@ -58,7 +87,7 @@ interface EditableProfile {
   bio: string;
   location: string;
   specialization: string;
-  profile_image: string;
+  profile_image: ProfileImageValue;
 }
 
 export default function PhotographerProfile({
@@ -71,9 +100,13 @@ export default function PhotographerProfile({
     "pending" | "verified" | "not_submitted" | "rejected"
   >("not_submitted");
   const [showKYC, setShowKYC] = useState(false);
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [user, setUser] = useState<any | null>(null);
+
+  const isProfileIncomplete = !user?.bio?.trim() || !user?.specialization?.trim() || !user?.profile_image;
   const [loading, setLoading] = useState(true);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [activeSubView, setActiveSubView] = useState<'form' | 'specialization' | 'location'>('form');
   const [editedProfile, setEditedProfile] = useState<EditableProfile | null>(
     null,
   );
@@ -128,7 +161,7 @@ export default function PhotographerProfile({
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: "images",
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
@@ -143,23 +176,19 @@ export default function PhotographerProfile({
 
         const file = {
           uri: asset.uri,
-          name: asset.uri.split("/").pop() || "profile.jpg",
-          type: "image/jpeg",
+          name: asset.fileName || asset.uri.split("/").pop() || "profile.jpg",
+          type: asset.mimeType || "image/jpeg",
         };
 
         const uploadRes = await apiService.uploadProfileImage(file, token);
-        if (uploadRes.success && uploadRes.data) {
-          const newAvatar = toAbsoluteImageUrl(uploadRes.data.profile_image);
-          if (newAvatar) {
-            setUser((prev: any) =>
-              prev ? { ...prev, profile_image: newAvatar } : null,
-            );
-            const currentUser = await storage.getUser();
-            await storage.saveUser({
-              ...currentUser,
-              profile_image: uploadRes.data.profile_image,
-            });
-          }
+
+        const updatedUserFromApi =
+          (uploadRes as any)?.data ?? (uploadRes as any);
+        if (updatedUserFromApi) {
+          const currentUser = await storage.getUser();
+          const mergedUser = { ...(currentUser || {}), ...updatedUserFromApi };
+          await storage.saveUser(mergedUser);
+          setUser(mergedUser);
           Alert.alert("Success", "Profile photo updated!");
         }
       } catch (err: any) {
@@ -291,16 +320,15 @@ export default function PhotographerProfile({
 
     const handleSocketUpdate = (data: {
       user_id: string;
-      profile_image: string;
+      profile_image: ProfileImageValue;
     }) => {
       if (data.profile_image) {
         setUser((prev: any) =>
           prev
             ? {
-                ...prev,
-                profile_image:
-                  toAbsoluteImageUrl(data.profile_image) || prev.profile_image,
-              }
+              ...prev,
+              profile_image: data.profile_image,
+            }
             : null,
         );
       }
@@ -346,13 +374,15 @@ export default function PhotographerProfile({
     location: user?.location ?? "",
     memberSince: user?.created_at
       ? new Date(user.created_at).toLocaleDateString("en-US", {
-          month: "long",
-          year: "numeric",
-        })
+        month: "long",
+        year: "numeric",
+      })
       : "N/A",
     specialization: user?.specialization ?? "",
-    badge: user?.badge ?? "",
-    rating: user?.rating ?? 0,
+    badge: user?.badge ?? "Rookie",
+    rank: user?.rank ?? "N/A",
+    points: user?.points ?? 0,
+    rating: user?.rating ?? "0.0",
     totalBookings: user?.total_bookings ?? 0,
     earnings: user?.earnings ?? 0,
     reviews: user?.reviews ?? 0,
@@ -360,6 +390,8 @@ export default function PhotographerProfile({
     role: user?.role ?? "",
     profile_image: user?.profile_image ?? "",
   };
+
+  const profileImageUri = getProfileImageUri(photographer.profile_image);
 
   const stats = [
     {
@@ -421,6 +453,7 @@ export default function PhotographerProfile({
               Profile
             </ThemedText>
             <TouchableOpacity
+              testID="edit-profile-button"
               style={styles.headerIconButton}
               onPress={() => {
                 setEditedProfile({
@@ -431,10 +464,14 @@ export default function PhotographerProfile({
                   specialization: photographer.specialization,
                   profile_image: photographer.profile_image,
                 });
+                setActiveSubView('form');
                 setEditModalOpen(true);
               }}
             >
               <Ionicons name="pencil" size={22} color={white} />
+              {isProfileIncomplete && (
+                <View style={[styles.incompleteDot, { backgroundColor: errorColor }]} />
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -450,13 +487,11 @@ export default function PhotographerProfile({
               >
                 <Image
                   source={
-                    photographer.profile_image
-                      ? {
-                          uri: photographer.profile_image.startsWith("http")
-                            ? photographer.profile_image
-                            : `${API_HOST}${photographer.profile_image}`,
-                        }
-                      : require("../../assets/images/abishek.png")
+                    profileImageUri
+                      ? { uri: profileImageUri }
+                      : {
+                        uri: `https://ui-avatars.com/api/?name=${photographer.name}&background=f1f5f9&color=64748b`,
+                      }
                   }
                   style={styles.profileImage}
                 />
@@ -495,21 +530,10 @@ export default function PhotographerProfile({
               )}
 
               <View style={styles.badgesContainer}>
-                <View
-                  style={[
-                    styles.badgeElite,
-                    { backgroundColor: warning + "33" },
-                  ]}
-                >
-                  <ThemedText style={styles.badgeEmojiText}>⭐</ThemedText>
-                  <ThemedText
-                    type="xs"
-                    weight="bold"
-                    style={{ color: warning }}
-                  >
-                    {photographer.badge || "Elite"}
-                  </ThemedText>
-                </View>
+                <BadgeDisplay
+                  badgeName={photographer.badge || "Rookie"}
+                  size="small"
+                />
                 {kycStatus === "verified" && (
                   <View
                     style={[
@@ -580,7 +604,7 @@ export default function PhotographerProfile({
                   weight="extrabold"
                   style={{ color: gray900 }}
                 >
-                  #1
+                  {photographer.rank}
                 </ThemedText>
                 <ThemedText
                   type="sm"
@@ -589,10 +613,20 @@ export default function PhotographerProfile({
                 >
                   Rank
                 </ThemedText>
-                <ThemedText type="sm" style={{ color: gray500, marginTop: 2 }}>
-                  {" "}
-                  {photographer.earnings || 1800} pts
-                </ThemedText>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    marginTop: 2,
+                  }}
+                >
+                  <ThemedText
+                    style={{ fontSize: 12, marginRight: 2 }}
+                  ></ThemedText>
+                  <ThemedText type="sm" style={{ color: gray500 }}>
+                    {photographer.points.toLocaleString()} pts
+                  </ThemedText>
+                </View>
               </View>
               <View
                 style={[
@@ -703,6 +737,7 @@ export default function PhotographerProfile({
                     and resubmit with correct information.
                   </ThemedText>
                   <TouchableOpacity
+                    testID="kyc-verify-button"
                     style={[styles.kycButton, { backgroundColor: errorColor }]}
                     onPress={() => setShowKYC(true)}
                   >
@@ -737,6 +772,7 @@ export default function PhotographerProfile({
                     your bookings!
                   </ThemedText>
                   <TouchableOpacity
+                    testID="kyc-verify-button"
                     style={[styles.kycButton, { backgroundColor: primary }]}
                     onPress={() => setShowKYC(true)}
                   >
@@ -795,7 +831,10 @@ export default function PhotographerProfile({
             <Ionicons name="chevron-forward" size={20} color={gray400} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => setHelpModalOpen(true)}
+          >
             <Ionicons name="help-circle" size={24} color={gray600} />
             <ThemedText weight="medium" style={styles.menuItemText}>
               Help & Support
@@ -829,185 +868,145 @@ export default function PhotographerProfile({
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: background }]}>
             <View style={[styles.modalHeader, { borderBottomColor: gray200 }]}>
-              <ThemedText
-                type="lg"
-                weight="extrabold"
-                style={{ color: gray900 }}
-              >
-                Edit Profile
-              </ThemedText>
               <TouchableOpacity
-                onPress={() => setEditModalOpen(false)}
+                onPress={() => {
+                  if (activeSubView !== 'form') {
+                    setActiveSubView('form');
+                  } else {
+                    setEditModalOpen(false);
+                  }
+                }}
                 style={styles.iconBtn}
-                accessibilityLabel="Close"
               >
-                <Ionicons name="close" size={20} color={gray900} />
+                <Ionicons name={activeSubView === 'form' ? "close" : "arrow-back"} size={22} color={gray900} />
               </TouchableOpacity>
+              <ThemedText type="lg" weight="extrabold" style={{ color: gray900 }}>
+                {activeSubView === 'form' ? "Edit Profile" : (activeSubView === 'specialization' ? "Select Specialization" : "Select City")}
+              </ThemedText>
+              <View style={{ width: 22 }} />
             </View>
-
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 120 }}
-            >
-              {editedProfile && (
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+              {editedProfile && activeSubView === 'form' && (
                 <>
-                  <ThemedText
-                    type="xs"
-                    weight="extrabold"
-                    style={[styles.fieldLabel, { color: gray500 }]}
-                  >
-                    Full Name
-                  </ThemedText>
+                  <ThemedText type="xs" weight="extrabold" style={[styles.fieldLabel, { color: gray500 }]}>Full Name</ThemedText>
                   <TextInput
+                    testID="edit-name-input"
                     value={editedProfile.name}
-                    onChangeText={(t) =>
-                      setEditedProfile((p) => (p ? { ...p, name: t } : null))
-                    }
-                    style={[
-                      styles.fieldInput,
-                      {
-                        color: gray900,
-                        backgroundColor: gray100,
-                        borderColor: gray300,
-                      },
-                    ]}
+                    onChangeText={(t) => setEditedProfile((p) => (p ? { ...p, name: t } : null))}
+                    style={[styles.fieldInput, { color: gray900, backgroundColor: gray100, borderColor: gray300 }]}
                     placeholder="Full name"
                     placeholderTextColor={gray400}
                   />
-
-                  <ThemedText
-                    type="xs"
-                    weight="extrabold"
-                    style={[styles.fieldLabel, { color: gray500 }]}
+                  <ThemedText type="xs" weight="extrabold" style={[styles.fieldLabel, { color: gray500 }]}>Specialization</ThemedText>
+                  <TouchableOpacity
+                    onPress={() => setActiveSubView('specialization')}
+                    style={[styles.fieldInput, { backgroundColor: gray100, borderColor: gray300, justifyContent: 'center' }]}
                   >
-                    Specialization
-                  </ThemedText>
-                  <TextInput
-                    value={editedProfile.specialization}
-                    onChangeText={(t) =>
-                      setEditedProfile((p) =>
-                        p ? { ...p, specialization: t } : null,
-                      )
-                    }
-                    style={[
-                      styles.fieldInput,
-                      {
-                        color: gray900,
-                        backgroundColor: gray100,
-                        borderColor: gray300,
-                      },
-                    ]}
-                    placeholder="e.g. Wedding & Event, Portrait, Commercial"
-                    placeholderTextColor={gray400}
-                  />
-
-                  <ThemedText
-                    type="xs"
-                    weight="extrabold"
-                    style={[styles.fieldLabel, { color: gray500 }]}
-                  >
-                    Phone
-                  </ThemedText>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <ThemedText style={{ color: editedProfile.specialization ? gray900 : gray400 }}>{editedProfile.specialization || "Select specialization"}</ThemedText>
+                      <Ionicons name="chevron-down" size={18} color={gray400} />
+                    </View>
+                  </TouchableOpacity>
+                  <ThemedText type="xs" weight="extrabold" style={[styles.fieldLabel, { color: gray500 }]}>Phone</ThemedText>
                   <TextInput
                     value={editedProfile.phone}
-                    onChangeText={(t) =>
-                      setEditedProfile((p) => (p ? { ...p, phone: t } : null))
-                    }
-                    style={[
-                      styles.fieldInput,
-                      {
-                        color: gray900,
-                        backgroundColor: gray100,
-                        borderColor: gray300,
-                      },
-                    ]}
+                    onChangeText={(t) => setEditedProfile((p) => (p ? { ...p, phone: t } : null))}
+                    style={[styles.fieldInput, { color: gray900, backgroundColor: gray100, borderColor: gray300 }]}
                     placeholder="Phone"
                     placeholderTextColor={gray400}
                     keyboardType="phone-pad"
                   />
-
-                  <ThemedText
-                    type="xs"
-                    weight="extrabold"
-                    style={[styles.fieldLabel, { color: gray500 }]}
+                  <ThemedText type="xs" weight="extrabold" style={[styles.fieldLabel, { color: gray500 }]}>Location</ThemedText>
+                  <TouchableOpacity
+                    onPress={() => setActiveSubView('location')}
+                    style={[styles.fieldInput, { backgroundColor: gray100, borderColor: gray300, justifyContent: 'center' }]}
                   >
-                    Location
-                  </ThemedText>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <ThemedText style={{ color: editedProfile.location ? gray900 : gray400 }}>{editedProfile.location || "Select city"}</ThemedText>
+                      <Ionicons name="chevron-down" size={18} color={gray400} />
+                    </View>
+                  </TouchableOpacity>
+                  <ThemedText type="xs" weight="extrabold" style={[styles.fieldLabel, { color: gray500 }]}>Bio</ThemedText>
                   <TextInput
-                    value={editedProfile.location}
-                    onChangeText={(t) =>
-                      setEditedProfile((p) =>
-                        p ? { ...p, location: t } : null,
-                      )
-                    }
-                    style={[
-                      styles.fieldInput,
-                      {
-                        color: gray900,
-                        backgroundColor: gray100,
-                        borderColor: gray300,
-                      },
-                    ]}
-                    placeholder="Location"
-                    placeholderTextColor={gray400}
-                  />
-
-                  <ThemedText
-                    type="xs"
-                    weight="extrabold"
-                    style={[styles.fieldLabel, { color: gray500 }]}
-                  >
-                    Bio
-                  </ThemedText>
-                  <TextInput
+                    testID="edit-bio-input"
                     value={editedProfile.bio}
-                    onChangeText={(t) =>
-                      setEditedProfile((p) => (p ? { ...p, bio: t } : null))
-                    }
-                    style={[
-                      styles.fieldInput,
-                      styles.bioInput,
-                      {
-                        color: gray900,
-                        backgroundColor: gray100,
-                        borderColor: gray300,
-                      },
-                    ]}
+                    onChangeText={(t) => setEditedProfile((p) => (p ? { ...p, bio: t } : null))}
+                    style={[styles.fieldInput, styles.bioInput, { color: gray900, backgroundColor: gray100, borderColor: gray300 }]}
                     placeholder="Tell clients about your photography style..."
                     placeholderTextColor={gray400}
                     multiline
                   />
                 </>
               )}
+              {editedProfile && activeSubView === 'specialization' && (
+                <View style={{ marginTop: 10 }}>
+                  {PHOTOGRAPHER_TYPES.map((type) => (
+                    <TouchableOpacity
+                      key={type}
+                      style={[styles.pickerItem, { borderBottomColor: gray200 }]}
+                      onPress={() => {
+                        setEditedProfile(p => p ? { ...p, specialization: type } : null);
+                        setActiveSubView('form');
+                      }}
+                    >
+                      <ThemedText weight="medium" style={{ color: editedProfile?.specialization === type ? primary : gray700 }}>{type}</ThemedText>
+                      {editedProfile?.specialization === type && <Ionicons name="checkmark" size={20} color={primary} />}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              {editedProfile && activeSubView === 'location' && (
+                <View style={{ marginTop: 10 }}>
+                  {NEPAL_CITIES.map((city) => (
+                    <TouchableOpacity
+                      key={city}
+                      style={[styles.pickerItem, { borderBottomColor: gray200 }]}
+                      onPress={() => {
+                        setEditedProfile(p => p ? { ...p, location: city } : null);
+                        setActiveSubView('form');
+                      }}
+                    >
+                      <ThemedText weight="medium" style={{ color: editedProfile?.location === city ? primary : gray700 }}>{city}</ThemedText>
+                      {editedProfile?.location === city && <Ionicons name="checkmark" size={20} color={primary} />}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </ScrollView>
-
             <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: gray200 }]}
-                onPress={() => setEditModalOpen(false)}
-                activeOpacity={0.85}
-              >
-                <ThemedText
-                  type="base"
-                  weight="bold"
-                  style={{ color: gray600 }}
+              {activeSubView === 'form' ? (
+                <>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: gray200 }]}
+                    onPress={() => setEditModalOpen(false)}
+                    activeOpacity={0.85}
+                  >
+                    <ThemedText type="base" weight="bold" style={{ color: gray600 }}>Cancel</ThemedText>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    testID="save-profile-button"
+                    style={[styles.modalBtn, { backgroundColor: primary }]}
+                    onPress={handleSaveProfile}
+                    activeOpacity={0.85}
+                  >
+                    <ThemedText type="base" weight="bold" style={{ color: white }}>Save Changes</ThemedText>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.modalBtn, { backgroundColor: gray200, flex: 1 }]}
+                  onPress={() => setActiveSubView('form')}
+                  activeOpacity={0.85}
                 >
-                  Cancel
-                </ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: primary }]}
-                onPress={handleSaveProfile}
-                activeOpacity={0.85}
-              >
-                <ThemedText type="base" weight="bold" style={{ color: white }}>
-                  Save Changes
-                </ThemedText>
-              </TouchableOpacity>
+                  <ThemedText type="base" weight="bold" style={{ color: gray600 }}>Back to Form</ThemedText>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </View>
       </Modal>
+
+      <HelpSupportModal visible={helpModalOpen} onClose={() => setHelpModalOpen(false)} />
     </View>
   );
 }
@@ -1387,5 +1386,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 16,
     borderBottomWidth: 1,
+  },
+  miniStrengthWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    backgroundColor: "#f8fafc",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#f1f5f9",
+  },
+  miniBar: {
+    flexDirection: "row",
+    width: 60,
+    height: 4,
+    gap: 3,
+  },
+  miniSegment: {
+    flex: 1,
+    borderRadius: 2,
+  },
+  incompleteDot: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: "white",
   },
 });

@@ -2,15 +2,17 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import React from "react";
 import {
+    Image,
     Linking,
     ScrollView,
     StyleSheet,
-    Text,
     TouchableOpacity,
     View,
 } from "react-native";
+import { ThemedText } from "../components/themed-text";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import Navbar from "../components/navbar";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface Feature {
     icon: string;
@@ -74,9 +76,9 @@ const contactInfo: ContactInfo[] = [
     {
         icon: "mail-outline",
         label: "Email Us",
-        value: "support@clickseekers.com",
+        value: "clickseekersofficial@gmail.com.com",
         color: "#3b82f6",
-        link: "mailto:support@clickseekers.com",
+        link: "mailto:clickseekersofficial@gmail.com",
     },
     {
         icon: "call-outline",
@@ -93,21 +95,11 @@ const contactInfo: ContactInfo[] = [
     },
 ];
 
-interface SocialLink {
-    icon: string;
-    color: string;
-    link: string;
-}
-
-const socialLinks: SocialLink[] = [
-    { icon: "logo-facebook", color: "#1877f2", link: "https://facebook.com" },
-    { icon: "logo-instagram", color: "#e4405f", link: "https://instagram.com" },
-    { icon: "logo-twitter", color: "#1da1f2", link: "https://twitter.com" },
-    { icon: "logo-whatsapp", color: "#25d366", link: "https://wa.me/9779800000000" },
-];
 
 export default function AboutPage() {
+    const Text = ThemedText;
     const router = useRouter();
+    const insets = useSafeAreaInsets();
 
     const handleOpenLink = (url?: string) => {
         if (url) {
@@ -123,10 +115,10 @@ export default function AboutPage() {
                     colors={["#1e3a8a", "#3b82f6"]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    style={styles.hero}
+                    style={[styles.hero, { paddingTop: insets.top + 16 }]}
                 >
                     <View style={styles.heroContent}>
-                        <Text style={styles.heroLogo}>📸</Text>
+                        <Image source={require("../assets/images/logo.png")} style={styles.heroLogo} resizeMode="contain" />
                         <Text style={styles.heroTitle}>ClickSeekers</Text>
                         <Text style={styles.heroSubtitle}>
                             Nepal's Premier Photography Marketplace connecting clients with
@@ -242,25 +234,7 @@ export default function AboutPage() {
                             ))}
                         </View>
 
-                        {/* Social Media */}
-                        <View style={styles.socialSection}>
-                            <Text style={styles.socialTitle}>Follow Us</Text>
-                            <View style={styles.socialLinks}>
-                                {socialLinks.map((social, index) => (
-                                    <TouchableOpacity
-                                        key={index}
-                                        style={styles.socialLink}
-                                        onPress={() => handleOpenLink(social.link)}
-                                    >
-                                        <Ionicons
-                                            name={social.icon as any}
-                                            size={24}
-                                            color={social.color}
-                                        />
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-                        </View>
+
                     </View>
                 </View>
 
@@ -290,7 +264,8 @@ const styles = StyleSheet.create({
         alignItems: "center",
     },
     heroLogo: {
-        fontSize: 48,
+        width: 80,
+        height: 80,
         marginBottom: 16,
     },
     heroTitle: {
@@ -298,6 +273,7 @@ const styles = StyleSheet.create({
         fontWeight: "700",
         color: "#fff",
         marginBottom: 12,
+        lineHeight: 40,
     },
     heroSubtitle: {
         fontSize: 16,
@@ -315,6 +291,7 @@ const styles = StyleSheet.create({
         color: "#1e293b",
         marginBottom: 12,
         textAlign: "center",
+        lineHeight: 32,
     },
     sectionDescription: {
         fontSize: 15,
@@ -346,6 +323,7 @@ const styles = StyleSheet.create({
         fontWeight: "700",
         color: "#3b82f6",
         marginBottom: 4,
+        lineHeight: 38,
     },
     statLabel: {
         fontSize: 11,

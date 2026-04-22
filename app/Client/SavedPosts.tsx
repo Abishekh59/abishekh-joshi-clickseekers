@@ -1,408 +1,408 @@
-import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+} from "react-native";
+import { useRouter, useFocusEffect } from "expo-router";
+import { ThemedText } from "../../components/themed-text";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { API_HOST, apiService } from "../../services/api";
+import { storage } from "../../utils/storage";
 
 interface SavedPostsProps {
   onBack?: () => void;
   onNavigate?: (screen: string, data?: any) => void;
 }
 
-interface Comment {
-  id: string;
-  username: string;
-  comment: string;
-  date: string;
+interface Post {
+  image_id: number;
+  photographer: {
+    user_id: string;
+    full_name: string;
+    username: string;
+    profile_image: string | null;
+  };
+  image_url: string;
+  title: string;
+  description: string;
+  location: string | null;
+  likes_count: number;
+  comments_count: number;
+  isLiked: boolean;
+  isSaved: boolean;
+  created_at: string;
 }
 
-interface Post {
-  id: number;
-  photographerName: string;
-  photographerUsername: string;
-  photographerAvatar: string; // initials in original
-  category: string;
-  location: string;
-  image: string;
-  caption: string;
-  likes: number;
-  isLiked: boolean;
-  likedBy: string[];
-  comments: Comment[];
-  date: string;
-}
+const toAbsoluteImageUrl = (url: string | null) => {
+  if (!url) return null;
+  if (url.startsWith("http")) return url;
+  const path = url.startsWith("/") ? url : `/${url}`;
+  return `${API_HOST}${path}`;
+};
+
+const getRelativeTime = (dateString: string) => {
+  const now = new Date();
+  const date = new Date(dateString);
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (diffInSeconds < 60) return "Just now";
+  const diffInMinutes = Math.floor(diffInSeconds / 60);
+  if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+  const diffInHours = Math.floor(diffInMinutes / 60);
+  if (diffInHours < 24) return `${diffInHours}h ago`;
+  const diffInDays = Math.floor(diffInHours / 24);
+  return `${diffInDays}d ago`;
+};
+
+const PostCard = ({
+  item,
+  onLike,
+  onRemove,
+  onNavigate,
+  onCommentAdded,
+}: {
+  item: Post;
+  onLike: (id: number) => void;
+  onRemove: (id: number) => void;
+  onNavigate: (id: string) => void;
+  onCommentAdded: () => void;
+}) => {
+  const [commentText, setCommentText] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const profileImage = toAbsoluteImageUrl(item.photographer.profile_image);
+  const imageUrl = toAbsoluteImageUrl(item.image_url);
+
+  const handleAddComment = async () => {
+    if (!commentText.trim() || isSubmitting) return;
+    try {
+      setIsSubmitting(true);
+      const token = await storage.getToken();
+      if (!token) return;
+      await apiService.addComment(item.image_id, commentText, token);
+      setCommentText("");
+      Alert.alert("Success", "Comment added!");
+      onCommentAdded();
+    } catch (err) {
+      console.error("Failed to post comment:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <View style={styles.postContainer}>
+      {/* Header */}
+      <View style={styles.postHeader}>
+        <TouchableOpacity
+          style={styles.postHeaderUser}
+          onPress={() => onNavigate(item.photographer.user_id)}
+        >
+          {profileImage ? (
+            <Image source={{ uri: profileImage }} style={styles.postAvatar} />
+          ) : (
+            <View style={[styles.postAvatar, { backgroundColor: "#e5e7eb", alignItems: "center", justifyContent: "center" }]}>
+              <ThemedText type="xs" weight="bold" style={{ color: "#4b5563" }}>
+                {item.photographer.full_name?.charAt(0) || "P"}
+              </ThemedText>
+            </View>
+          )}
+          <View>
+            <ThemedText type="sm" weight="bold" style={{ color: "#111827" }}>
+              {item.photographer.username || item.photographer.full_name}
+            </ThemedText>
+            {item.location && (
+              <View style={styles.locationContainer}>
+                <Ionicons name="location-outline" size={12} color="#6b7280" />
+                <ThemedText type="xs" style={{ color: "#6b7280" }}>
+                  {item.location}
+                </ThemedText>
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
+        <TouchableOpacity>
+          <Ionicons name="ellipsis-vertical" size={20} color="#111827" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Main Image */}
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={() => onNavigate(item.photographer.user_id)}
+      >
+        <Image
+          source={{ uri: imageUrl as string }}
+          style={styles.postImage}
+          resizeMode="cover"
+        />
+      </TouchableOpacity>
+
+      {/* Actions */}
+      <View style={styles.postActions}>
+        <View style={styles.postActionsLeft}>
+          <TouchableOpacity onPress={() => onLike(item.image_id)}>
+            <Ionicons
+              name={item.isLiked ? "heart" : "heart-outline"}
+              size={28}
+              color={item.isLiked ? "#ed4956" : "#111827"}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity style={{ marginLeft: 16 }}>
+            <Ionicons name="chatbubble-outline" size={24} color="#111827" />
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity onPress={() => onRemove(item.image_id)}>
+          <Ionicons name="bookmark" size={24} color="#111827" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Post Info */}
+      <View style={styles.postInfo}>
+        <ThemedText type="sm" weight="bold" style={{ color: "#111827", marginBottom: 4 }}>
+          {item.likes_count} likes
+        </ThemedText>
+        <ThemedText type="sm" style={{ color: "#111827", lineHeight: 18 }}>
+          <ThemedText type="sm" weight="bold">{item.photographer.username} </ThemedText>
+          {item.description || item.title}
+        </ThemedText>
+        <ThemedText type="xs" style={{ color: "#9ca3af", marginTop: 6, marginBottom: 8 }}>
+          {getRelativeTime(item.created_at).toUpperCase()}
+        </ThemedText>
+      </View>
+
+      {/* Comment Input */}
+      <View style={styles.commentInputRow}>
+        <TextInput
+          style={styles.commentInput}
+          placeholder="Add a comment..."
+          placeholderTextColor="#9ca3af"
+          value={commentText}
+          onChangeText={setCommentText}
+          editable={!isSubmitting}
+        />
+        <TouchableOpacity onPress={handleAddComment}>
+          <ThemedText
+            type="sm"
+            weight="bold"
+            style={{ color: commentText.trim() ? "#4f46e5" : "#9ca3af" }}
+          >
+            {isSubmitting ? "..." : "Post"}
+          </ThemedText>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
 
 export default function SavedPosts({ onBack, onNavigate }: SavedPostsProps) {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [posts, setPosts] = useState<Post[]>([
-    {
-      id: 1,
-      photographerName: 'Rajesh Sharma',
-      photographerUsername: 'rajesh_sharma_photography',
-      photographerAvatar: 'RS',
-      category: 'Wedding',
-      location: 'Kathmandu, Nepal',
-      image: 'https://images.unsplash.com/photo-1519741497674-611481863552?w=800',
-      caption: 'Beautiful wedding ceremony at the historic Patan Durbar Square. What a magical day!',
-      likes: 234,
-      isLiked: false,
-      likedBy: ['aashma.dhimal', 'ram_thapa', 'sita_sharma'],
-      comments: [
-        { id: 'c1', username: 'aashma.dhimal', comment: 'Absolutely stunning!', date: '2h' },
-        { id: 'c2', username: 'ram_thapa', comment: 'Great composition!', date: '1h' },
-      ],
-      date: '2 hours ago',
-    },
-    {
-      id: 2,
-      photographerName: 'Maya Gurung',
-      photographerUsername: 'maya_lens',
-      photographerAvatar: 'MG',
-      category: 'Fashion',
-      location: 'Thamel, Kathmandu',
-      image: 'https://images.unsplash.com/photo-1529139574466-a303027c1d8b?w=800',
-      caption: 'Fashion editorial shoot for local designer. Love working with creative minds!',
-      likes: 312,
-      isLiked: false,
-      likedBy: ['fashion_nepal', 'style_icon', 'designer_123'],
-      comments: [
-        { id: 'c4', username: 'fashion_nepal', comment: 'This is fire!', date: '5h' },
-        { id: 'c5', username: 'style_icon', comment: 'Absolutely love this!', date: '4h' },
-      ],
-      date: '8 hours ago',
-    },
-    {
-      id: 3,
-      photographerName: 'Sita Karki',
-      photographerUsername: 'sita_travels',
-      photographerAvatar: 'SK',
-      category: 'Travel',
-      location: 'Annapurna Base Camp',
-      image: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800',
-      caption: 'Sunrise at the Himalayas. This never gets old! #Nepal #Mountains',
-      likes: 456,
-      isLiked: false,
-      likedBy: ['travel_nepal', 'wanderlust', 'mountain_lover'],
-      comments: [
-        { id: 'c7', username: 'travel_nepal', comment: 'Breathtaking!', date: '12h' },
-        { id: 'c8', username: 'wanderlust', comment: 'Need to visit this place!', date: '11h' },
-      ],
-      date: '1 day ago',
-    },
-  ]);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [showCommentsForPost, setShowCommentsForPost] = useState<number | null>(null);
-  const [commentText, setCommentText] = useState('');
-
-  const savedCountText = useMemo(() => `${posts.length} ${posts.length === 1 ? 'post' : 'posts'}`, [posts.length]);
-
-  const handleLike = (postId: number) => {
-    setPosts((prev) =>
-      prev.map((post) =>
-        post.id === postId
-          ? { ...post, isLiked: !post.isLiked, likes: post.isLiked ? post.likes - 1 : post.likes + 1 }
-          : post
-      )
-    );
+  const fetchSavedPosts = async () => {
+    try {
+      setLoading(true);
+      const token = await storage.getToken();
+      if (!token) return;
+      const response = await apiService.getUserSaves(token);
+      if (response.success && response.data) {
+        setPosts(response.data.savedPosts as any);
+      }
+    } catch (error) {
+      console.error("Failed to fetch saved posts:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const toggleComments = (postId: number) => {
-    setShowCommentsForPost((prev) => (prev === postId ? null : postId));
+  useFocusEffect(
+    useCallback(() => {
+      fetchSavedPosts();
+    }, [])
+  );
+
+  const handleLike = async (postId: number) => {
+    try {
+      const token = await storage.getToken();
+      if (!token) return;
+
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.image_id === postId
+            ? {
+                ...p,
+                isLiked: !p.isLiked,
+                likes_count: p.isLiked ? p.likes_count - 1 : p.likes_count + 1,
+              }
+            : p,
+        ),
+      );
+      await apiService.likePortfolioImage(postId, token);
+    } catch (error) {
+      console.error("Failed to like:", error);
+    }
   };
 
-  const handleAddComment = (postId: number) => {
-    const text = commentText.trim();
-    if (!text) return;
-
-    setPosts((prev) =>
-      prev.map((post) =>
-        post.id === postId
-          ? {
-            ...post,
-            comments: [
-              ...post.comments,
-              { id: `c${Date.now()}`, username: 'you', comment: text, date: 'Just now' },
-            ],
-          }
-          : post
-      )
-    );
-
-    setCommentText('');
+  const removeBookmark = async (postId: number) => {
+    try {
+      const token = await storage.getToken();
+      if (!token) return;
+      setPosts((prev) => prev.filter((p) => p.image_id !== postId));
+      await apiService.toggleImageSave(postId, token);
+    } catch (error) {
+      console.error("Failed to remove bookmark:", error);
+      fetchSavedPosts();
+    }
   };
 
-  const removeBookmark = (postId: number) => {
-    setPosts((prev) => prev.filter((p) => p.id !== postId));
-    if (showCommentsForPost === postId) setShowCommentsForPost(null);
-    setCommentText('');
-  };
-
-  const PostCard = ({ item: post }: { item: Post }) => {
-    const commentsOpen = showCommentsForPost === post.id;
-
-    return (
-      <View style={styles.post}>
-        {/* Post Header */}
-        <View style={styles.postHeader}>
-          <TouchableOpacity
-            style={styles.postAvatar}
-            activeOpacity={0.85}
-            onPress={() => onNavigate?.('client-photographer-profile', { photographerId: post.id })}
-          >
-            <View style={styles.postAvatarInner}>
-              <Text style={styles.postAvatarText}>{post.photographerAvatar}</Text>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.postInfo}
-            activeOpacity={0.85}
-            onPress={() => onNavigate?.('client-photographer-profile', { photographerId: post.id })}
-          >
-            <View style={styles.usernameRow}>
-              <Text style={styles.username} numberOfLines={1}>
-                {post.photographerUsername}
-              </Text>
-              <View style={styles.categoryPill}>
-                <Text style={styles.categoryPillText}>{post.category}</Text>
-              </View>
-            </View>
-            <Text style={styles.location} numberOfLines={1}>
-              {post.location}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.iconBtn} activeOpacity={0.85} accessibilityLabel="Post menu">
-            <Ionicons name="ellipsis-vertical" size={18} color="#111827" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Image */}
-        <View style={styles.postImageWrap}>
-          <Image source={{ uri: post.image }} style={styles.postImage} />
-        </View>
-
-        {/* Actions */}
-        <View style={styles.actionsRow}>
-          <TouchableOpacity onPress={() => handleLike(post.id)} style={styles.actionBtn} activeOpacity={0.85}>
-            <Ionicons name={post.isLiked ? 'heart' : 'heart-outline'} size={22} color={post.isLiked ? '#ed4956' : '#111827'} />
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => toggleComments(post.id)} style={styles.actionBtn} activeOpacity={0.85}>
-            <Ionicons name="chatbubble-outline" size={22} color="#111827" />
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => removeBookmark(post.id)} style={[styles.actionBtn, { marginLeft: 'auto' }]} activeOpacity={0.85}>
-            <Ionicons name="bookmark" size={22} color="#111827" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Likes */}
-        {post.likedBy?.length ? (
-          <View style={styles.likesRow}>
-            <View style={styles.likedByAvatars}>
-              {post.likedBy.slice(0, 3).map((u, idx) => (
-                <View key={`${u}-${idx}`} style={[styles.likedAvatar, idx ? styles.likedAvatarOverlap : null]}>
-                  <Text style={styles.likedAvatarText}>{u.charAt(0).toUpperCase()}</Text>
-                </View>
-              ))}
-            </View>
-            <Text style={styles.likesText}>{post.likes.toLocaleString()} likes</Text>
-          </View>
-        ) : null}
-
-        {/* Caption */}
-        <Text style={styles.caption}>
-          <Text style={styles.captionUser}>{post.photographerUsername} </Text>
-          {post.caption}
-        </Text>
-
-        {/* View comments */}
-        {post.comments.length > 0 && !commentsOpen ? (
-          <TouchableOpacity onPress={() => toggleComments(post.id)} activeOpacity={0.85}>
-            <Text style={styles.viewComments}>View all {post.comments.length} comments</Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {/* Comments */}
-        {commentsOpen && post.comments.length > 0 ? (
-          <View style={styles.commentsBox}>
-            {post.comments.map((c) => (
-              <View key={c.id} style={styles.commentRow}>
-                <View style={styles.commentAvatar}>
-                  <Text style={styles.commentAvatarText}>{c.username.charAt(0).toUpperCase()}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.commentText}>
-                    <Text style={styles.commentUser}>{c.username} </Text>
-                    {c.comment}
-                  </Text>
-                  <Text style={styles.commentMeta}>{c.date}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        ) : null}
-
-        {/* Date */}
-        <Text style={styles.postDate}>{post.date.toUpperCase()}</Text>
-
-        {/* Add Comment */}
-        <View style={styles.commentInputRow}>
-          <TextInput
-            value={commentsOpen ? commentText : ''}
-            onChangeText={setCommentText}
-            onFocus={() => setShowCommentsForPost(post.id)}
-            placeholder="Add a comment..."
-            placeholderTextColor="#9ca3af"
-            style={styles.commentInput}
-          />
-          <TouchableOpacity
-            onPress={() => handleAddComment(post.id)}
-            disabled={!commentText.trim() || !commentsOpen}
-            activeOpacity={0.85}
-            style={[styles.postBtn, (!commentText.trim() || !commentsOpen) ? styles.postBtnDisabled : null]}
-          >
-            <Text style={[styles.postBtnText, (!commentText.trim() || !commentsOpen) ? styles.postBtnTextDisabled : null]}>
-              Post
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
+  const handleNavigate = (photographerId: string) => {
+    router.push({
+      pathname: "/Client/PhotographerProfile",
+      params: { id: photographerId },
+    });
   };
 
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: Platform.OS === 'ios' ? 10 : insets.top + 10 }]}>
-        <TouchableOpacity onPress={onBack} style={styles.iconBtn} accessibilityLabel="Back" activeOpacity={0.85}>
+      <View style={[styles.header, { paddingTop: Platform.OS === "ios" ? 10 : insets.top + 10 }]}>
+        <TouchableOpacity onPress={onBack || (() => router.canGoBack() ? router.back() : router.replace('/Client/ClientDashboard'))} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={24} color="#111827" />
         </TouchableOpacity>
-        <Text style={styles.title}>Saved Posts</Text>
-        <Text style={styles.count}>{savedCountText}</Text>
+        <ThemedText style={styles.title}>Saved Posts</ThemedText>
+        <View style={{ width: 40 }} />
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <FlatList
-          data={posts}
-          keyExtractor={(p) => String(p.id)}
-          renderItem={({ item }) => <PostCard item={item} />}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={posts.length ? styles.listContent : styles.emptyWrap}
-          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <View style={styles.emptyIcon}>
-                <Ionicons name="bookmark-outline" size={34} color="#cbd5e1" />
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        {loading ? (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color="#4f46e5" />
+          </View>
+        ) : (
+          <FlatList
+            data={posts}
+            keyExtractor={(p) => String(p.image_id)}
+            renderItem={({ item }) => (
+              <PostCard
+                item={item}
+                onLike={handleLike}
+                onRemove={removeBookmark}
+                onNavigate={handleNavigate}
+                onCommentAdded={fetchSavedPosts}
+              />
+            )}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={posts.length ? styles.listContent : styles.emptyWrap}
+            ListEmptyComponent={
+              <View style={styles.center}>
+                <Ionicons name="bookmark-outline" size={48} color="#cbd5e1" />
+                <ThemedText style={styles.emptyTitle}>No Saved Posts</ThemedText>
+                <ThemedText style={styles.emptyText}>
+                  Bookmarks you save will appear here.
+                </ThemedText>
               </View>
-              <Text style={styles.emptyTitle}>No Saved Posts</Text>
-              <Text style={styles.emptyText}>
-                Start exploring and bookmark your favorite photos to see them here!
-              </Text>
-            </View>
-          }
-        />
+            }
+          />
+        )}
       </KeyboardAvoidingView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fafafa' },
-
+  container: { flex: 1, backgroundColor: "#fff" },
   header: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: "#f3f4f6",
     paddingHorizontal: 12,
     paddingVertical: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    columnGap: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   iconBtn: { padding: 8 },
-  title: { flex: 1, fontSize: 16, fontWeight: '900', color: '#111827' },
-  count: { color: '#9ca3af', fontWeight: '800' },
+  title: { fontSize: 16, fontWeight: "900", color: "#111827" },
+  
+  listContent: { paddingBottom: 20 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40 },
+  emptyWrap: { flexGrow: 1 },
+  emptyTitle: { fontSize: 18, fontWeight: "900", color: "#111827", marginTop: 12 },
+  emptyText: { color: "#6b7280", marginTop: 6, textAlign: "center", fontWeight: "600" },
 
-  listContent: { paddingVertical: 12 },
-  emptyWrap: { flexGrow: 1, padding: 16 },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  emptyIcon: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
+  postContainer: {
+    backgroundColor: "#fff",
+    marginBottom: 8,
   },
-  emptyTitle: { fontSize: 16, fontWeight: '900', color: '#111827' },
-  emptyText: { marginTop: 6, textAlign: 'center', color: '#6b7280', fontWeight: '700' },
-
-  post: { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e5e7eb', borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
-
-  postHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, columnGap: 10 },
+  postHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  postHeaderUser: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   postAvatar: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    padding: 2,
-    backgroundColor: '#f59e0b',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  postAvatarInner: { width: '100%', height: '100%', borderRadius: 16, backgroundColor: '#2563eb', alignItems: 'center', justifyContent: 'center' },
-  postAvatarText: { color: '#fff', fontWeight: '900', fontSize: 12 },
-
-  postInfo: { flex: 1 },
-  usernameRow: { flexDirection: 'row', alignItems: 'center', columnGap: 8 },
-  username: { color: '#111827', fontWeight: '900', fontSize: 13, maxWidth: '75%' },
-  categoryPill: { backgroundColor: '#f3f4f6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
-  categoryPillText: { fontSize: 11, fontWeight: '800', color: '#111827' },
-  location: { marginTop: 2, color: '#9ca3af', fontWeight: '700', fontSize: 12 },
-
-  postImageWrap: { width: '100%', aspectRatio: 1, backgroundColor: '#f3f4f6' },
-  postImage: { width: '100%', height: '100%' },
-
-  actionsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, columnGap: 14 },
-  actionBtn: { paddingVertical: 6, paddingHorizontal: 4 },
-
-  likesRow: { paddingHorizontal: 12, paddingBottom: 6, flexDirection: 'row', alignItems: 'center', columnGap: 10 },
-  likedByAvatars: { flexDirection: 'row', alignItems: 'center' },
-  likedAvatar: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#2563eb', borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
-  likedAvatarOverlap: { marginLeft: -8 },
-  likedAvatarText: { color: '#fff', fontWeight: '900', fontSize: 10 },
-  likesText: { color: '#111827', fontWeight: '900' },
-
-  caption: { paddingHorizontal: 12, paddingBottom: 6, color: '#111827', fontWeight: '700', lineHeight: 18 },
-  captionUser: { fontWeight: '900' },
-
-  viewComments: { paddingHorizontal: 12, paddingBottom: 6, color: '#9ca3af', fontWeight: '800' },
-
-  commentsBox: { paddingHorizontal: 12, paddingBottom: 6 },
-  commentRow: { flexDirection: 'row', columnGap: 10, marginBottom: 10 },
-  commentAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#2563eb', alignItems: 'center', justifyContent: 'center' },
-  commentAvatarText: { color: '#fff', fontWeight: '900', fontSize: 12 },
-  commentText: { color: '#111827', fontWeight: '700', lineHeight: 18 },
-  commentUser: { fontWeight: '900' },
-  commentMeta: { marginTop: 2, color: '#9ca3af', fontWeight: '800', fontSize: 11 },
-
-  postDate: { paddingHorizontal: 12, paddingBottom: 10, color: '#9ca3af', fontWeight: '800', fontSize: 11 },
-
-  commentInputRow: { borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', columnGap: 10 },
-  commentInput: { flex: 1, fontSize: 13, fontWeight: '700', color: '#111827' },
-  postBtn: { paddingVertical: 6, paddingHorizontal: 6 },
-  postBtnDisabled: { opacity: 0.4 },
-  postBtnText: { color: '#2563eb', fontWeight: '900' },
-  postBtnTextDisabled: { color: '#9ca3af' },
+  locationContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    marginTop: 1,
+  },
+  postImage: {
+    width: "100%",
+    aspectRatio: 1,
+    backgroundColor: "#f3f4f6",
+  },
+  postActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  postActionsLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  postInfo: {
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+  },
+  commentInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#f9fafb",
+  },
+  commentInput: {
+    flex: 1,
+    fontSize: 14,
+    color: "#111827",
+    fontWeight: "600",
+  },
 });

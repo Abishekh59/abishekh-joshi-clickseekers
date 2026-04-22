@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { Alert, Image, Modal, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ClientBottomNav from '../../components/ClientBottomNav';
+import HelpSupportModal from '../../components/HelpSupportModal';
 import { API_HOST, apiService } from '../../services/api';
 import { socketService } from '../../services/socket';
 import { storage } from '../../utils/storage';
@@ -40,6 +41,7 @@ export const ClientProfile: React.FC<Props> = ({ onLogout }) => {
   const insets = useSafeAreaInsets();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [favoriteCount, setFavoriteCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,7 +71,7 @@ export const ClientProfile: React.FC<Props> = ({ onLogout }) => {
             name: d.full_name || 'User',
             email: d.email || '',
             phone: d.phone || '',
-            avatar: toAbsoluteImageUrl(d.profile_image) || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400',
+            avatar: toAbsoluteImageUrl(d.profile_image) || '',
             location: d.location || 'Nepal',
             bio: d.bio || '',
             totalBookings: d.totalBookings || 0,
@@ -77,6 +79,12 @@ export const ClientProfile: React.FC<Props> = ({ onLogout }) => {
             totalSpent: d.totalSpent || 0,
             createdAt: d.created_at || new Date().toISOString(),
           });
+        }
+
+        // Fetch favorite count
+        const favRes = await apiService.getFavoritePhotographerIds(token);
+        if (favRes.success && favRes.data) {
+            setFavoriteCount(favRes.data.favoriteIds.length);
         }
       } catch (err: any) {
         setError(err.message || 'Failed to load profile');
@@ -101,6 +109,7 @@ export const ClientProfile: React.FC<Props> = ({ onLogout }) => {
   }, [router]);
 
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [editedProfile, setEditedProfile] = useState<UserProfile | null>(null);
 
   const handleSaveProfile = async () => {
@@ -131,9 +140,9 @@ export const ClientProfile: React.FC<Props> = ({ onLogout }) => {
       Alert.alert('Permission Denied', 'Sorry, we need camera roll permissions to make this work!');
       return;
     }
-
+  
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: 'images',
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
@@ -202,9 +211,20 @@ export const ClientProfile: React.FC<Props> = ({ onLogout }) => {
         <ThemedText type="base" weight="bold" style={{ color: errorColor, marginTop: 12, textAlign: 'center' }}>
           {error || 'Profile not found'}
         </ThemedText>
-        <TouchableOpacity style={[styles.retryBtn, { backgroundColor: primary }]} onPress={() => router.replace('/Client/ClientProfile')}>
-          <ThemedText type="sm" weight="extrabold" style={{ color: '#fff' }}>Retry</ThemedText>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 12, marginTop: 24 }}>
+          <TouchableOpacity
+            style={[styles.retryBtn, { backgroundColor: primary, flex: 1 }]}
+            onPress={() => router.replace('/Client/ClientProfile')}
+          >
+            <ThemedText type="sm" weight="extrabold" style={{ color: '#fff' }}>Retry</ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.retryBtn, { backgroundColor: errorColor, flex: 1 }]}
+            onPress={handleLogout}
+          >
+            <ThemedText type="sm" weight="extrabold" style={{ color: '#fff' }}>Logout</ThemedText>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -251,7 +271,7 @@ export const ClientProfile: React.FC<Props> = ({ onLogout }) => {
               </View>
 
               <View style={[styles.statItem, styles.statDivider, { borderLeftColor: '#e5e7eb', borderRightColor: '#e5e7eb' }]}>
-                <ThemedText type="2xl" weight="extrabold" style={{ color: gray900 }}>0</ThemedText>
+                <ThemedText type="2xl" weight="extrabold" style={{ color: gray900 }}>{favoriteCount}</ThemedText>
                 <ThemedText type="sm" weight="medium" style={{ color: gray900, marginTop: 4 }}>Favorites</ThemedText>
                 <ThemedText type="sm" style={{ color: gray500, marginTop: 2 }}>Photographers</ThemedText>
               </View>
@@ -296,7 +316,10 @@ export const ClientProfile: React.FC<Props> = ({ onLogout }) => {
             <Ionicons name="chevron-forward" size={18} color={gray400} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => setHelpModalOpen(true)}
+          >
             <Ionicons name="help-circle-outline" size={22} color={gray700} />
             <ThemedText type="base" weight="bold" style={[styles.menuItemText, { marginLeft: 15 }]}>Help & Support</ThemedText>
             <Ionicons name="chevron-forward" size={18} color={gray400} />
@@ -382,6 +405,7 @@ export const ClientProfile: React.FC<Props> = ({ onLogout }) => {
         </View>
       </Modal>
 
+      <HelpSupportModal visible={helpModalOpen} onClose={() => setHelpModalOpen(false)} />
       <ClientBottomNav />
     </View>
   );

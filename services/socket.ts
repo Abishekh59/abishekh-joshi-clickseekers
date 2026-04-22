@@ -5,9 +5,18 @@ class SocketService {
     private socket: Socket | null = null;
     private listeners: Map<string, ((...args: any[]) => void)[]> = new Map();
 
-    connect(token?: string) {
-        if (this.socket?.connected) return;
+    private currentToken: string | null = null;
 
+    connect(token?: string) {
+        // If already connected with the same token, do nothing
+        if (this.socket?.connected && token === this.currentToken) return;
+
+        // If a new token is provided or we were connected as a guest, reconnect
+        if (this.socket) {
+            this.socket.disconnect();
+        }
+
+        this.currentToken = token || null;
         this.socket = io(API_HOST, {
             transports: ['websocket'],
             autoConnect: true,

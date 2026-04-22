@@ -8,10 +8,11 @@ import {
   Platform,
   StatusBar,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { ThemedText } from "../components/themed-text";
+import { apiService } from "../services/api";
 import { socketService } from "../services/socket";
 import { storage } from "../utils/storage";
 
@@ -28,12 +29,22 @@ export default function HomePage() {
         const token = await storage.getToken();
         const user = await storage.getUser();
         if (token && user) {
-          socketService.connect(token);
-          socketService.emit('join_room', user.user_id);
-          if (user.role === "PHOTOGRAPHER") {
-            router.replace("/Photographer/PhotographerDashboard");
-          } else if (user.role === "CLIENT") {
-            router.replace("/Client/ClientDashboard");
+          try {
+            // Verify session with backend
+            await apiService.getMe(token);
+
+            socketService.connect(token);
+            socketService.emit('join_room', user.user_id);
+            if (user.role === "PHOTOGRAPHER") {
+              router.replace("/Photographer/PhotographerDashboard");
+            } else if (user.role === "CLIENT") {
+              router.replace("/Client/ClientDashboard");
+            } else if (user.role === "ADMIN") {
+              router.replace("/Admin/AdminDashboard");
+            }
+          } catch (error) {
+            console.warn("Session verification failed, clearing auth:", error);
+            await storage.clearAuth();
           }
         }
       } catch (e) {
@@ -75,30 +86,31 @@ export default function HomePage() {
               style={styles.logo}
             />
 
-            <Text style={styles.title}>
-              Click<Text style={styles.titleBlue}>Seekers</Text>
-            </Text>
+            <ThemedText style={styles.title}>
+              Click<ThemedText style={styles.titleBlue}>Seekers</ThemedText>
+            </ThemedText>
 
-            <Text style={styles.subtitle}>
+            <ThemedText style={styles.subtitle}>
               Connect with talented photographers{"\n"}
               and capture your perfect moments
-            </Text>
+            </ThemedText>
           </View>
 
           {/* Buttons */}
           <View style={styles.buttonsContainer}>
             <TouchableOpacity
+              testID="get-started-button"
               style={styles.getStartedBtn}
               onPress={() => router.push("/role")}
             >
-              <Text style={styles.getStartedText}>Get Started ➜</Text>
+              <ThemedText style={styles.getStartedText}>Get Started ➜</ThemedText>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.exploreBtn}
               onPress={() => router.push("/")}
             >
-              <Text style={styles.exploreText}>Explore Photographers</Text>
+              <ThemedText style={styles.exploreText}>Explore Photographers</ThemedText>
             </TouchableOpacity>
           </View>
         </View>
@@ -153,6 +165,7 @@ const styles = StyleSheet.create({
     fontSize: 32,
     marginTop: 10,
     fontWeight: "700",
+    lineHeight: 40,
   },
 
   titleBlue: {

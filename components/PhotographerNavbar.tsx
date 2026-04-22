@@ -1,6 +1,8 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ThemedText } from './themed-text';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 type TabId = 'dashboard' | 'bookings' | 'chat' | 'portfolio' | 'profile';
 
@@ -8,7 +10,9 @@ interface NavItem {
   id: TabId;
   name: TabId;
   icon: string;
+  activeIcon: string;
   label: string;
+  library: 'Ionicons' | 'MaterialCommunityIcons';
 }
 
 interface PhotographerNavbarProps {
@@ -17,11 +21,11 @@ interface PhotographerNavbarProps {
 }
 
 const navItems: NavItem[] = [
-  { id: 'dashboard', name: 'dashboard', icon: 'grid-outline', label: 'Dashboard' },
-  { id: 'bookings', name: 'bookings', icon: 'calendar-outline', label: 'Bookings' },
-  { id: 'chat', name: 'chat', icon: 'chatbubble-outline', label: 'Chat' },
-  { id: 'portfolio', name: 'portfolio', icon: 'camera-outline', label: 'Portfolio' },
-  { id: 'profile', name: 'profile', icon: 'person-outline', label: 'Profile' },
+  { id: 'dashboard', name: 'dashboard', icon: 'view-dashboard-outline', activeIcon: 'view-dashboard', label: 'Dashboard', library: 'MaterialCommunityIcons' },
+  { id: 'bookings', name: 'bookings', icon: 'calendar-today', activeIcon: 'calendar-today', label: 'Bookings', library: 'MaterialCommunityIcons' },
+  { id: 'chat', name: 'chat', icon: 'chatbox-ellipses-outline', activeIcon: 'chatbox-ellipses', label: 'Chat', library: 'Ionicons' },
+  { id: 'portfolio', name: 'portfolio', icon: 'camera-outline', activeIcon: 'camera', label: 'Portfolio', library: 'Ionicons' },
+  { id: 'profile', name: 'profile', icon: 'person-outline', activeIcon: 'person', label: 'Profile', library: 'Ionicons' },
 ];
 
 export default function PhotographerNavbar({ activeTab, onTabPress }: PhotographerNavbarProps) {
@@ -32,18 +36,27 @@ export default function PhotographerNavbar({ activeTab, onTabPress }: Photograph
         return (
           <TouchableOpacity
             key={item.id}
+            testID={"nav-tab-" + item.id}
             style={styles.navItem}
             onPress={() => onTabPress(item.id)}
             activeOpacity={0.95}
           >
-            <Ionicons
-              name={item.icon as any}
-              size={24}
-              color={isActive ? '#2563eb' : '#9ca3af'}
-            />
-            <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>
+            {item.library === 'MaterialCommunityIcons' ? (
+              <MaterialCommunityIcons
+                name={(isActive ? item.activeIcon : item.icon) as any}
+                size={24}
+                color={isActive ? '#2563eb' : '#9ca3af'}
+              />
+            ) : (
+              <Ionicons
+                name={(isActive ? item.activeIcon : item.icon) as any}
+                size={24}
+                color={isActive ? '#2563eb' : '#9ca3af'}
+              />
+            )}
+            <ThemedText style={[styles.navLabel, isActive && styles.navLabelActive]}>
               {item.label}
-            </Text>
+            </ThemedText>
           </TouchableOpacity>
         );
       })}

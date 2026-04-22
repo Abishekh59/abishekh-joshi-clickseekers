@@ -5,21 +5,24 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
+import { ThemedText } from "../components/themed-text";
+import { NEPAL_CITIES } from "../constants/nepalCities";
+import { PHOTOGRAPHER_TYPES } from "../constants/photographerTypes";
 import { apiService } from "../services/api";
 
 export default function Register() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const role = (params.role as 'PHOTOGRAPHER' | 'CLIENT') || 'CLIENT';
+  const role = (params.role as "PHOTOGRAPHER" | "CLIENT") || "CLIENT";
 
   const [fullName, setFullName] = useState("");
   const [fullNameError, setFullNameError] = useState<string | null>(null);
@@ -32,10 +35,25 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const [location, setLocation] = useState("");
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [locationPickerVisible, setLocationPickerVisible] = useState(false);
+
+  const [specialization, setSpecialization] = useState("");
+  const [specPickerVisible, setSpecPickerVisible] = useState(false);
+
   const handleRegister = async () => {
     const nameValidation = validateFullName(fullName);
     if (nameValidation) {
       Alert.alert("Error", nameValidation);
+      return;
+    }
+    if (!location) {
+      Alert.alert("Error", "Please select your location");
+      return;
+    }
+    if (role === "PHOTOGRAPHER" && !specialization) {
+      Alert.alert("Error", "Please select your photography specialization");
       return;
     }
     const phoneValidation = validatePhone(phone);
@@ -63,6 +81,8 @@ export default function Register() {
         email: email.trim().toLowerCase(),
         password,
         phone: phone.trim() || undefined,
+        location: location.trim() || undefined,
+        specialization: role === "PHOTOGRAPHER" ? specialization : undefined,
         role: role,
       });
 
@@ -78,16 +98,19 @@ export default function Register() {
                   pathname: "/verify-otp",
                   params: {
                     email: email.trim().toLowerCase(),
-                    role: role
+                    role: role,
                   },
                 });
               },
             },
-          ]
+          ],
         );
       }
     } catch (error: any) {
-      Alert.alert("Registration Failed", error.message || "Something went wrong");
+      Alert.alert(
+        "Registration Failed",
+        error.message || "Something went wrong",
+      );
     } finally {
       setLoading(false);
     }
@@ -107,14 +130,16 @@ export default function Register() {
     if (!trimmed) return null; // phone optional — only validate when provided
     const normalized = trimmed.replace(/[\s-]/g, "");
     // allow optional leading + and 7-15 digits
-    if (!/^\+?\d{7,15}$/.test(normalized)) return "Please enter a valid phone number";
+    if (!/^\+?\d{7,15}$/.test(normalized))
+      return "Please enter a valid phone number";
     return null;
   };
 
   const validateEmail = (e: string) => {
     const trimmed = e.trim();
     if (!trimmed) return "Please enter your email address";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed)) return "Please enter a valid email address";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmed))
+      return "Please enter a valid email address";
     return null;
   };
 
@@ -151,26 +176,27 @@ export default function Register() {
             />
           </View>
 
-
-          <Text style={styles.title}>
-            Create Your <Text style={styles.highlight}>ClickSeekers</Text> Account
-          </Text>
+          <ThemedText style={styles.title}>
+            Create Your{" "}
+            <ThemedText style={styles.highlight}>ClickSeekers</ThemedText>{" "}
+            Account
+          </ThemedText>
 
           {/* Divider */}
           <View style={styles.divider} />
 
           {/* Subtitle (role-specific) */}
-          <Text style={styles.subtitle}>
-            {role === 'PHOTOGRAPHER'
-              ? 'Sign up and start building your photography career with trusted clients.'
-              : 'Start your journey — hire the right photographer in just a few clicks.'}
-          </Text>
+          <ThemedText style={styles.subtitle}>
+            {role === "PHOTOGRAPHER"
+              ? "Sign up and start building your photography career with trusted clients."
+              : "Start your journey — hire the right photographer in just a few clicks."}
+          </ThemedText>
 
           {/* Form Fields */}
           <View style={styles.form}>
             {/* Full Name */}
             <View style={styles.fieldContainer}>
-              <Text style={styles.label}>Full Name</Text>
+              <ThemedText style={styles.label}>Full Name</ThemedText>
               <TextInput
                 placeholder="Click Seekers"
                 placeholderTextColor="#999"
@@ -184,13 +210,83 @@ export default function Register() {
                 autoCapitalize="words"
               />
               {fullNameError ? (
-                <Text style={styles.fieldErrorText}>{fullNameError}</Text>
+                <ThemedText style={styles.fieldErrorText}>
+                  {fullNameError}
+                </ThemedText>
               ) : null}
             </View>
 
+            {/* Location Dropdown */}
+            <View style={styles.fieldContainer}>
+              <ThemedText style={styles.label}>
+                Location (City in Nepal)
+              </ThemedText>
+              <TouchableOpacity
+                style={[
+                  styles.input,
+                  { justifyContent: "center" },
+                  locationError ? styles.inputError : null,
+                ]}
+                onPress={() => setLocationPickerVisible(true)}
+                disabled={loading}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <ThemedText
+                    style={{ color: location ? "#000" : "#999", fontSize: 16 }}
+                  >
+                    {location || "Select your city"}
+                  </ThemedText>
+                  <Ionicons name="chevron-down" size={20} color="#666" />
+                </View>
+              </TouchableOpacity>
+              {locationError ? (
+                <ThemedText style={styles.fieldErrorText}>
+                  {locationError}
+                </ThemedText>
+              ) : null}
+            </View>
+
+            {/* Specialization (Photographer Only) */}
+            {role === "PHOTOGRAPHER" && (
+              <View style={styles.fieldContainer}>
+                <ThemedText style={styles.label}>
+                  Photography Specialization
+                </ThemedText>
+                <TouchableOpacity
+                  style={[styles.input, { justifyContent: "center" }]}
+                  onPress={() => setSpecPickerVisible(true)}
+                  disabled={loading}
+                >
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <ThemedText
+                      style={{
+                        color: specialization ? "#000" : "#999",
+                        fontSize: 16,
+                      }}
+                    >
+                      {specialization || "Select specialization..."}
+                    </ThemedText>
+                    <Ionicons name="chevron-down" size={20} color="#666" />
+                  </View>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* Phone Number */}
             <View style={styles.fieldContainer}>
-              <Text style={styles.label}>Phone Number</Text>
+              <ThemedText style={styles.label}>Phone Number</ThemedText>
               <TextInput
                 placeholder="9815025634"
                 placeholderTextColor="#999"
@@ -204,13 +300,15 @@ export default function Register() {
                 editable={!loading}
               />
               {phoneError ? (
-                <Text style={styles.fieldErrorText}>{phoneError}</Text>
+                <ThemedText style={styles.fieldErrorText}>
+                  {phoneError}
+                </ThemedText>
               ) : null}
             </View>
 
             {/* Email Address */}
             <View style={styles.fieldContainer}>
-              <Text style={styles.label}>Email Address</Text>
+              <ThemedText style={styles.label}>Email Address</ThemedText>
               <TextInput
                 placeholder="clickseekersofficial@gmail.com"
                 placeholderTextColor="#999"
@@ -228,14 +326,21 @@ export default function Register() {
                 editable={!loading}
               />
               {emailError ? (
-                <Text style={styles.fieldErrorText}>{emailError}</Text>
+                <ThemedText style={styles.fieldErrorText}>
+                  {emailError}
+                </ThemedText>
               ) : null}
             </View>
 
             {/* Password */}
             <View style={styles.fieldContainer}>
-              <Text style={styles.label}>Password</Text>
-              <View style={[styles.passwordContainer, passwordError ? styles.inputError : null]}>
+              <ThemedText style={styles.label}>Password</ThemedText>
+              <View
+                style={[
+                  styles.passwordContainer,
+                  passwordError ? styles.inputError : null,
+                ]}
+              >
                 <TextInput
                   placeholder="**********"
                   placeholderTextColor="#999"
@@ -264,11 +369,119 @@ export default function Register() {
                 </TouchableOpacity>
               </View>
               {passwordError ? (
-                <Text style={styles.fieldErrorText}>{passwordError}</Text>
+                <ThemedText style={styles.fieldErrorText}>
+                  {passwordError}
+                </ThemedText>
               ) : null}
             </View>
           </View>
         </ScrollView>
+
+        {/* Location Picker Modal */}
+        <Modal
+          visible={locationPickerVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setLocationPickerVisible(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={styles.modalOverlay}
+            onPress={() => setLocationPickerVisible(false)}
+          >
+            <View style={styles.modalSheet}>
+              <View style={styles.modalHeader}>
+                <ThemedText style={styles.modalTitle}>
+                  Select City in Nepal
+                </ThemedText>
+                <TouchableOpacity
+                  onPress={() => setLocationPickerVisible(false)}
+                  style={styles.modalCloseBtn}
+                >
+                  <Ionicons name="close" size={22} color="#000" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                style={styles.modalList}
+                showsVerticalScrollIndicator={false}
+              >
+                {NEPAL_CITIES.map((city) => (
+                  <TouchableOpacity
+                    key={city}
+                    style={styles.modalOption}
+                    onPress={() => {
+                      setLocation(city);
+                      setLocationError(null);
+                      setLocationPickerVisible(false);
+                    }}
+                  >
+                    <ThemedText style={styles.modalOptionText}>
+                      {city}
+                    </ThemedText>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Specialization Picker Modal */}
+        <Modal
+          visible={specPickerVisible}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setSpecPickerVisible(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={styles.modalOverlay} // Reusing modalOverlay style
+            onPress={() => setSpecPickerVisible(false)}
+          >
+            <View style={styles.modalSheet}>
+              {/* Reusing modalSheet style */}
+              <View style={styles.modalHeader}>
+                <ThemedText style={styles.modalTitle}>
+                  Select Specialization
+                </ThemedText>
+                {/* Reusing modalTitle style */}
+                <TouchableOpacity
+                  onPress={() => setSpecPickerVisible(false)}
+                  style={styles.modalCloseBtn}
+                >
+                  {/* Reusing modalCloseBtn style */}
+                  <Ionicons name="close" size={22} color="#000" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {PHOTOGRAPHER_TYPES.map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={styles.modalOption} // Reusing modalOption style
+                    onPress={() => {
+                      setSpecialization(type);
+                      setSpecPickerVisible(false);
+                    }}
+                  >
+                    <ThemedText
+                      style={[
+                        styles.modalOptionText, // Reusing modalOptionText style
+                        specialization === type
+                          ? styles.selectedPickerText
+                          : null,
+                      ]}
+                    >
+                      {type}
+                    </ThemedText>
+                    {specialization === type && (
+                      <Ionicons name="checkmark" size={20} color="#4A90E2" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </Modal>
 
         <View style={styles.bottomSection}>
           {/* Register Button */}
@@ -281,18 +494,25 @@ export default function Register() {
             {loading ? (
               <ActivityIndicator color="#000" size="small" />
             ) : (
-              <Text style={styles.registerButtonText}>Register Now</Text>
+              <ThemedText style={styles.registerButtonText}>
+                Register Now
+              </ThemedText>
             )}
           </TouchableOpacity>
 
           {/* Login Link */}
           <View style={styles.loginLinkContainer}>
-            <Text style={styles.loginLinkText}>Already have an account? </Text>
+            <ThemedText style={styles.loginLinkText}>
+              Already have an account?{" "}
+            </ThemedText>
             <TouchableOpacity
-              onPress={() => router.push({ pathname: "/login", params: { role } })}
+              testID="login-link"
+              onPress={() =>
+                router.push({ pathname: "/login", params: { role } })
+              }
               disabled={loading}
             >
-              <Text style={styles.loginLink}>Log in</Text>
+              <ThemedText style={styles.loginLink}>Log in</ThemedText>
             </TouchableOpacity>
           </View>
         </View>
@@ -455,5 +675,60 @@ const styles = StyleSheet.create({
     color: "#4A90E2",
     fontSize: 14,
     fontWeight: "600",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalSheet: {
+    width: "85%",
+    maxHeight: "70%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#000",
+  },
+  modalCloseBtn: {
+    padding: 4,
+  },
+  modalList: {
+    padding: 8,
+  },
+  modalOption: {
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F5F5F5",
+  },
+  modalOptionText: { fontSize: 16, color: "#333" },
+  selectedPickerText: { color: "#4A90E2", fontWeight: "bold" },
+  pickerToggle: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 12,
+  },
+  pickerText: {
+    fontSize: 16,
+    color: "#000000",
+    flex: 1,
+  },
+  placeholderText: {
+    fontSize: 16,
+    color: "#999999",
+    flex: 1,
   },
 });

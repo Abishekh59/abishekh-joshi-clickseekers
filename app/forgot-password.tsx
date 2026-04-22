@@ -10,16 +10,17 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { ThemedText } from "../components/themed-text";
 import { apiService } from "../services/api";
 
 const { width } = Dimensions.get("window");
 
 export default function ForgotPassword() {
+  const Text = ThemedText;
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -116,6 +117,7 @@ export default function ForgotPassword() {
                 style={styles.inputIcon}
               />
               <TextInput
+                testID="email-input"
                 placeholder="Enter your email"
                 placeholderTextColor="#999"
                 style={styles.input}
@@ -135,6 +137,7 @@ export default function ForgotPassword() {
 
             {/* Send OTP Button */}
             <TouchableOpacity
+              testID="send-otp-button"
               style={[styles.sendButton, loading && styles.buttonDisabled]}
               onPress={handleSendOTP}
               disabled={loading}

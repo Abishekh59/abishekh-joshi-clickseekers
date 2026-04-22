@@ -49,6 +49,7 @@ export function ThemedText({
         type === 'label' ? styles.smMedium : undefined,
 
         weight ? { fontWeight: Typography.fontWeight[weight] } : undefined,
+        { fontFamily: Typography.fontFamily },
         style,
       ]}
       {...rest}
