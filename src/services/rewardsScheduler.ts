@@ -73,9 +73,6 @@ export const initRewardsScheduler = () => {
     cron.schedule('0 0 1 1,4,7,10 *', async () => {
         console.log('[RewardsScheduler] Starting quarterly rewards check...');
         try {
-            // Logic for top performer of the quarter
-            // For simplicity, we can use all-time top performer in that quarter if we had quarter filters
-            // But spec says All-Time Top Performer (Quarterly) -> likely just the top of that period
             const { getLeaderboard } = await import('./pointsService');
             const leaderboard = await getLeaderboard(1, 'all-time', 'PHOTOGRAPHER');
             if (leaderboard.length > 0) {

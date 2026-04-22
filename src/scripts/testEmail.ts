@@ -20,7 +20,7 @@ console.log('Secure:', SMTP_SECURE);
 console.log('-----------------------------------------');
 
 if (!SMTP_USER || !SMTP_PASS) {
-  console.error('❌ Error: SMTP_USER or SMTP_PASS is missing in .env');
+  console.error(' Error: SMTP_USER or SMTP_PASS is missing in .env');
   process.exit(1);
 }
 
@@ -55,12 +55,12 @@ const transporter = nodemailer.createTransport(
 
 async function testConnection() {
   try {
-    console.log('⌛ Verifying connection to email server...');
+    console.log(' Verifying connection to email server...');
     await transporter.verify();
-    console.log('✅ Success: Email server is reachable and credentials are valid.');
+    console.log(' Success: Email server is reachable and credentials are valid.');
 
     // Attempt to send a test email to the user themselves
-    console.log(`⌛ Sending test email to ${SMTP_USER}...`);
+    console.log(` Sending test email to ${SMTP_USER}...`);
     await transporter.sendMail({
       from: SMTP_USER,
       to: SMTP_USER,
@@ -68,9 +68,9 @@ async function testConnection() {
       text: 'This is a test email to verify your SMTP configuration. If you see this, the registration failure is likely fixed!',
       html: '<h1>ClickSeekers SMTP Test</h1><p>This is a test email to verify your SMTP configuration.</p>'
     });
-    console.log('✅ Success: Test email sent successfully.');
+    console.log(' Success: Test email sent successfully.');
   } catch (error) {
-    console.error('❌ Diagnostic Failed:');
+    console.error(' Diagnostic Failed:');
     if (error instanceof Error) {
       console.error('   Message:', error.message);
       if ((error as any).code) console.error('   Code:', (error as any).code);
@@ -78,7 +78,7 @@ async function testConnection() {
     } else {
       console.error('   Unknown error:', error);
     }
-    
+
     console.log('\n--- Troubleshooting Tips ---');
     console.log('1. If the error is "EAUTH", your App Password might be incorrect or revoked.');
     console.log('2. If the error is "ETIMEDOUT", Gmail might be blocking the connection or your firewall is blocking port 587/465.');

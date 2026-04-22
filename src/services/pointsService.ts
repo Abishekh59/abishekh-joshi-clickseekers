@@ -549,7 +549,7 @@ export const getBadgeForPoints = async (totalPoints: number) => {
 
 /**
  * Get leaderboard of top users by points
- * Supports periods: 'weekly', 'monthly', 'all-time'
+ * Supports periods: 'monthly', 'all-time'
  */
 export const getLeaderboard = async (
   limit: number = 50,
