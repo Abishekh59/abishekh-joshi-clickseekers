@@ -664,7 +664,7 @@ export const listPhotographerPortfolioImagesPublic = catchAsync(
 );
 
 // GET /api/photographer/portfolio/image/:imageId
-// Serves portfolio images with graceful fallback for Render's ephemeral filesystem
+// Serves portfolio images from disk
 export const getPortfolioImageBinary = catchAsync(
   async (req: Request, res: Response) => {
     const imageId = Number(req.params.imageId);
@@ -678,7 +678,7 @@ export const getPortfolioImageBinary = catchAsync(
     });
 
     if (!image || !image.image_url) {
-      // Image not in database - return 404 JSON
+      // Image not in database
       return res
         .status(404)
         .json({ success: false, message: "Image not found in database" });
@@ -687,39 +687,18 @@ export const getPortfolioImageBinary = catchAsync(
     const absolutePath = process.cwd() + image.image_url;
 
     if (!fs.existsSync(absolutePath)) {
-      // File doesn't exist (common on Render's ephemeral filesystem after redeploy)
-      // Return a placeholder SVG instead of failing
+      // File doesn't exist (Render's ephemeral filesystem after redeploy)
       console.warn(
         `[getPortfolioImageBinary] Image file missing on disk: ${image.image_url}`,
       );
-
-      // Return a simple placeholder SVG with image dimensions if available
-      const placeholderSvg = `<svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" style="stop-color:#f3f4f6;stop-opacity:1" />
-            <stop offset="100%" style="stop-color:#e5e7eb;stop-opacity:1" />
-          </linearGradient>
-        </defs>
-        <rect width="400" height="400" fill="url(#grad1)"/>
-        <g transform="translate(200, 200)">
-          <circle cx="0" cy="-20" r="15" fill="#9ca3af"/>
-          <path d="M -30 20 L 30 20 L 20 -10 L -20 -10 Z" fill="#9ca3af"/>
-          <text x="0" y="60" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#6b7280">
-            Image Unavailable
-          </text>
-          <text x="0" y="85" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#9ca3af">
-            (File expired on server)
-          </text>
-        </g>
-      </svg>`;
-
-      res.set("Content-Type", "image/svg+xml");
-      res.set("Cache-Control", "public, max-age=3600");
-      return res.send(placeholderSvg);
+      // Return 404 - frontend will handle showing a placeholder
+      return res.status(404).json({
+        success: false,
+        message: "Image file not found on disk (file expired)",
+      });
     }
 
-    // File exists - serve it normally
+    // File exists - serve it
     res.set("Content-Type", image.mime_type || "image/jpeg");
     res.set("Cache-Control", "public, max-age=86400"); // Cache for 24 hours
     res.sendFile(absolutePath);
