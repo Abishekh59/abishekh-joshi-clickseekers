@@ -148,7 +148,7 @@ const UPLOAD_CATEGORIES = [
   "Influencer/Instagram",
   "Cinematic",
   "Minimalist",
-  "Other"
+  "Other",
 ] as const;
 
 type UploadCategory = (typeof UPLOAD_CATEGORIES)[number];
@@ -183,42 +183,42 @@ const PORTFOLIO_CATEGORY_NAMES = [
   "INFLUENCER_INSTAGRAM",
   "CINEMATIC",
   "MINIMALIST",
-  "OTHER"
+  "OTHER",
 ] as const;
 
 type PortfolioCategoryName = (typeof PORTFOLIO_CATEGORY_NAMES)[number];
 
 const CATEGORY_TO_API: Record<UploadCategory, PortfolioCategoryName> = {
-  "Portrait": "PORTRAIT",
-  "Landscape": "LANDSCAPE",
-  "Wildlife": "WILDLIFE",
-  "Street": "STREET",
-  "Fashion": "FASHION",
-  "Event": "EVENT",
-  "Sports": "SPORTS",
-  "Product": "PRODUCT",
-  "Food": "FOOD",
-  "Travel": "TRAVEL",
+  Portrait: "PORTRAIT",
+  Landscape: "LANDSCAPE",
+  Wildlife: "WILDLIFE",
+  Street: "STREET",
+  Fashion: "FASHION",
+  Event: "EVENT",
+  Sports: "SPORTS",
+  Product: "PRODUCT",
+  Food: "FOOD",
+  Travel: "TRAVEL",
   "Fine Art": "FINE_ART",
-  "Conceptual": "CONCEPTUAL",
-  "Abstract": "ABSTRACT",
+  Conceptual: "CONCEPTUAL",
+  Abstract: "ABSTRACT",
   "Black & White": "BLACK_AND_WHITE",
-  "Silhouette": "SILHOUETTE",
-  "Macro": "MACRO",
-  "Astrophotography": "ASTROPHOTOGRAPHY",
+  Silhouette: "SILHOUETTE",
+  Macro: "MACRO",
+  Astrophotography: "ASTROPHOTOGRAPHY",
   "Long Exposure": "LONG_EXPOSURE",
   "Aerial/Drone": "AERIAL_DRONE",
-  "Architectural": "ARCHITECTURAL",
+  Architectural: "ARCHITECTURAL",
   "Real Estate": "REAL_ESTATE",
-  "Commercial": "COMMERCIAL",
-  "Editorial": "EDITORIAL",
-  "Documentary": "DOCUMENTARY",
-  "Photojournalism": "PHOTOJOURNALISM",
-  "Lifestyle": "LIFESTYLE",
+  Commercial: "COMMERCIAL",
+  Editorial: "EDITORIAL",
+  Documentary: "DOCUMENTARY",
+  Photojournalism: "PHOTOJOURNALISM",
+  Lifestyle: "LIFESTYLE",
   "Influencer/Instagram": "INFLUENCER_INSTAGRAM",
-  "Cinematic": "CINEMATIC",
-  "Minimalist": "MINIMALIST",
-  "Other": "OTHER"
+  Cinematic: "CINEMATIC",
+  Minimalist: "MINIMALIST",
+  Other: "OTHER",
 };
 
 const PORTFOLIO_CATEGORY_SET = new Set<string>(PORTFOLIO_CATEGORY_NAMES);
@@ -298,7 +298,8 @@ const safeUnlinkIfExists = (absolutePath: string) => {
 
 const enrichImageWithUrl = (image: any) => ({
   ...image,
-  image_url: image.image_url || `/api/photographer/portfolio/image/${image.image_id}`,
+  image_url:
+    image.image_url || `/api/photographer/portfolio/image/${image.image_id}`,
 });
 
 const enrichImagesWithUrl = (images: any[]) => images.map(enrichImageWithUrl);
@@ -663,6 +664,7 @@ export const listPhotographerPortfolioImagesPublic = catchAsync(
 );
 
 // GET /api/photographer/portfolio/image/:imageId
+// Serves portfolio images with graceful fallback for Render's ephemeral filesystem
 export const getPortfolioImageBinary = catchAsync(
   async (req: Request, res: Response) => {
     const imageId = Number(req.params.imageId);
@@ -670,21 +672,56 @@ export const getPortfolioImageBinary = catchAsync(
       return res
         .status(400)
         .json({ success: false, message: "Invalid imageId" });
+
     const image = await prisma.portfolioImage.findUnique({
       where: { image_id: imageId },
     });
+
     if (!image || !image.image_url) {
+      // Image not in database - return 404 JSON
       return res
         .status(404)
-        .json({ success: false, message: "Image not found" });
+        .json({ success: false, message: "Image not found in database" });
     }
+
     const absolutePath = process.cwd() + image.image_url;
+
     if (!fs.existsSync(absolutePath)) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Image file not found on disk" });
+      // File doesn't exist (common on Render's ephemeral filesystem after redeploy)
+      // Return a placeholder SVG instead of failing
+      console.warn(
+        `[getPortfolioImageBinary] Image file missing on disk: ${image.image_url}`,
+      );
+
+      // Return a simple placeholder SVG with image dimensions if available
+      const placeholderSvg = `<svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#f3f4f6;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#e5e7eb;stop-opacity:1" />
+          </linearGradient>
+        </defs>
+        <rect width="400" height="400" fill="url(#grad1)"/>
+        <g transform="translate(200, 200)">
+          <circle cx="0" cy="-20" r="15" fill="#9ca3af"/>
+          <path d="M -30 20 L 30 20 L 20 -10 L -20 -10 Z" fill="#9ca3af"/>
+          <text x="0" y="60" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#6b7280">
+            Image Unavailable
+          </text>
+          <text x="0" y="85" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#9ca3af">
+            (File expired on server)
+          </text>
+        </g>
+      </svg>`;
+
+      res.set("Content-Type", "image/svg+xml");
+      res.set("Cache-Control", "public, max-age=3600");
+      return res.send(placeholderSvg);
     }
+
+    // File exists - serve it normally
     res.set("Content-Type", image.mime_type || "image/jpeg");
+    res.set("Cache-Control", "public, max-age=86400"); // Cache for 24 hours
     res.sendFile(absolutePath);
   },
 );
@@ -724,9 +761,13 @@ export const listAllPhotographersWithRecentPortfolios = catchAsync(
         },
       },
     });
-    console.log(`Fetched ${photographers.length} photographers in listAllPhotographers`);
+    console.log(
+      `Fetched ${photographers.length} photographers in listAllPhotographers`,
+    );
     if (photographers.length > 0) {
-      console.log(`First photographer specialization: ${photographers[0].specialization}`);
+      console.log(
+        `First photographer specialization: ${photographers[0].specialization}`,
+      );
     }
 
     // For each photographer, get their recent portfolio images and calculate aggregate stats
@@ -1204,17 +1245,20 @@ export const getDashboardStats = catchAsync(
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
 
-    const thisMonthEarnings = paidBookings.reduce((sum: number, booking: any) => {
-      const paidAt = booking.payment?.paid_at
-        ? new Date(booking.payment.paid_at)
-        : null;
-      if (paidAt && paidAt >= startOfMonth) {
-        return (
-          sum + Number(booking.payment?.photographer_amount || booking.amount)
-        );
-      }
-      return sum;
-    }, 0);
+    const thisMonthEarnings = paidBookings.reduce(
+      (sum: number, booking: any) => {
+        const paidAt = booking.payment?.paid_at
+          ? new Date(booking.payment.paid_at)
+          : null;
+        if (paidAt && paidAt >= startOfMonth) {
+          return (
+            sum + Number(booking.payment?.photographer_amount || booking.amount)
+          );
+        }
+        return sum;
+      },
+      0,
+    );
 
     // 3. Average Rating and Total Reviews
     const reviews = await prisma.review.findMany({
@@ -1225,7 +1269,8 @@ export const getDashboardStats = catchAsync(
     const totalReviews = reviews.length;
     const avgRating =
       totalReviews > 0
-        ? reviews.reduce((sum: number, r: any) => sum + r.rating, 0) / totalReviews
+        ? reviews.reduce((sum: number, r: any) => sum + r.rating, 0) /
+          totalReviews
         : 0.0;
 
     // 4. Upcoming Bookings Count and List
@@ -1461,7 +1506,10 @@ export const getEarnings = catchAsync(async (req: Request, res: Response) => {
     payment_status: b.payment?.status?.status_name || "PENDING",
   }));
 
-  const total = formattedEarnings.reduce((sum: number, e: any) => sum + e.amount, 0);
+  const total = formattedEarnings.reduce(
+    (sum: number, e: any) => sum + e.amount,
+    0,
+  );
 
   return res.json({
     success: true,
@@ -1563,7 +1611,9 @@ export const getAnalytics = catchAsync(async (req: Request, res: Response) => {
   });
 
   const packageStats = topPackages.map((p: any) => {
-    const detail = packageDetails.find((d: any) => d.package_id === p.package_id);
+    const detail = packageDetails.find(
+      (d: any) => d.package_id === p.package_id,
+    );
     return {
       name: detail?.name || "Unknown",
       count: p._count.booking_id,
@@ -1708,7 +1758,7 @@ export const getFavoritePhotographers = catchAsync(
             : 5.0; // Default to 5.0 if no reviews
 
         const points = photographer.rewards?.total_points || 0;
-        
+
         // Calculate rank
         const photographersWithMorePoints = await prisma.reward.count({
           where: {
